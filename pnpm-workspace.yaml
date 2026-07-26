@@ -1,4 +1,7 @@
 packages:
   - "."
+
+overrides:
+  "@hono/node-server": "2.0.10"
 allowBuilds:
   esbuild: set this to true or false

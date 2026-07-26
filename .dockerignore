@@ -10,4 +10,4 @@ work
 .env.*
 !deploy/.env.example
 release/*
-!release/agent-operator-worker-0.1.0.zip
+!release/agent-operator-worker-0.1.1.zip

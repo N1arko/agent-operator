@@ -33,7 +33,7 @@ VPS выполняет роль mailbox и presence-сервиса: хранит
 
 ## Статус
 
-MVP версии `0.1.0` дошёл до `CP-WIN-01`:
+MVP версии `0.1.1` проходит `CP-WIN-01`:
 
 - coordinator работает на `clawvpn` по доверенному HTTPS;
 - Mac-worker установлен как LaunchAgent и виден как `idle`;

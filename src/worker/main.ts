@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 import { access, readFile } from "node:fs/promises";
 import { requiredEnv } from "../shared/env.js";
 import { WorkerConfigFileSchema } from "../shared/protocol.js";
+import * as z from "zod/v4";
 import { CodexAppServer } from "./app-server.js";
 import { CoordinatorClient } from "./client.js";
 import { Worker } from "./worker.js";
@@ -21,10 +22,15 @@ const client = new CoordinatorClient(coordinatorUrl, token);
 const projectsFile = resolve(process.env.AOP_PROJECTS_FILE ?? "./projects.json");
 const stateFile = resolve(process.env.AOP_STATE_FILE ?? "./data/worker-state.json");
 const codexBin = process.env.AOP_CODEX_BIN ?? "codex";
+const codexArgs = z
+  .array(z.string())
+  .parse(JSON.parse(process.env.AOP_CODEX_ARGS_JSON ?? "[]"));
 
 if (process.argv[2] === "diagnose") {
   const health = await client.health();
-  const codex = spawnSync(codexBin, ["--version"], { encoding: "utf8" });
+  const codex = spawnSync(codexBin, [...codexArgs, "--version"], {
+    encoding: "utf8",
+  });
   const config = WorkerConfigFileSchema.parse(
     JSON.parse(await readFile(projectsFile, "utf8")),
   );
@@ -53,7 +59,7 @@ if (process.argv[2] === "diagnose") {
       currentProjectId: null,
       currentActivity: null,
       projects,
-      workerVersion: "0.1.0",
+      workerVersion: "0.1.1",
     });
     authenticated = true;
   }
@@ -69,6 +75,7 @@ if (process.argv[2] === "diagnose") {
       available: codex.status === 0,
       version: codex.stdout.trim(),
       error: codex.stderr.trim() || null,
+      argsCount: codexArgs.length,
     },
     projectsFile,
     projects: {
@@ -78,32 +85,32 @@ if (process.argv[2] === "diagnose") {
     platform,
   };
   console.log(JSON.stringify(result, null, 2));
-  process.exit(
+  process.exitCode =
     health.ok &&
-      authenticated &&
-      codex.status === 0 &&
-      projects.every((project) => project.available)
+    authenticated &&
+    codex.status === 0 &&
+    projects.every((project) => project.available)
       ? 0
-      : 1,
-  );
+      : 1;
+} else {
+  const worker = new Worker({
+    agentName: process.env.AOP_AGENT_NAME ?? requiredEnv("AOP_AGENT_ID"),
+    platform,
+    projectsFile,
+    stateFile,
+    client,
+    appServer: new CodexAppServer(
+      codexBin,
+      Number(process.env.AOP_APP_SERVER_IDLE_MS ?? 60_000),
+      codexArgs,
+    ),
+  });
+
+  const shutdown = (): void => {
+    void worker.stop().finally(() => process.exit(0));
+  };
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
+
+  await worker.start();
 }
-
-const worker = new Worker({
-  agentName: process.env.AOP_AGENT_NAME ?? requiredEnv("AOP_AGENT_ID"),
-  platform,
-  projectsFile,
-  stateFile,
-  client,
-  appServer: new CodexAppServer(
-    codexBin,
-    Number(process.env.AOP_APP_SERVER_IDLE_MS ?? 60_000),
-  ),
-});
-
-const shutdown = (): void => {
-  void worker.stop().finally(() => process.exit(0));
-};
-process.on("SIGINT", shutdown);
-process.on("SIGTERM", shutdown);
-
-await worker.start();

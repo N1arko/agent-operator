@@ -36,6 +36,7 @@ export class CodexAppServer {
   constructor(
     private readonly codexBin: string,
     private readonly idleTimeoutMs = 60_000,
+    private readonly codexArgs: string[] = [],
   ) {}
 
   async startThread(cwd: string, prompt: string): Promise<TurnHandle> {
@@ -124,7 +125,7 @@ export class CodexAppServer {
 
   private async ensureStarted(): Promise<void> {
     if (this.child?.exitCode === null) return;
-    this.child = spawn(this.codexBin, ["app-server"], {
+    this.child = spawn(this.codexBin, [...this.codexArgs, "app-server"], {
       stdio: ["pipe", "pipe", "pipe"],
     });
     const child = this.child;
@@ -150,7 +151,7 @@ export class CodexAppServer {
       clientInfo: {
         name: "agent-operator-worker",
         title: "Agent Operator worker",
-        version: "0.1.0",
+        version: "0.1.1",
       },
       capabilities: {
         experimentalApi: true,

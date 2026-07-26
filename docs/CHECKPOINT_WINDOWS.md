@@ -24,8 +24,12 @@ checkpoint начинается реальный end-to-end сценарий Mac
 
 При невыполненном условии checkpoint остаётся ожидающим.
 
-**Текущий статус 2026-07-26:** все входные условия выполнены. Checkpoint готов
-к действиям пользователя.
+**Текущий статус 2026-07-26:** Windows-worker подключён и публикует heartbeat,
+статус `idle` и один доступный проект. Первый `agent_start` дошёл до worker и
+остановился при чтении конфигурации `codex-cli 0.114.0`: значение
+`service_tier = "default"` отсутствует в наборе вариантов этой версии.
+Worker `0.1.1` запускает закреплённый npm Codex `0.145.0` через Node.js и готов
+к повторной установке.
 
 ## 3. Что требуется от пользователя
 
@@ -67,7 +71,7 @@ Device token не вставляется в prompt, Git, логи или отч�
 потребуется выбор пользователя или безопасный ввод секрета.
 
 Цель:
-- установить worker версии 0.1.0;
+- установить worker версии 0.1.1;
 - подключить его к
   https://agent-operator.188-241-197-83.sslip.io;
 - зарегистрировать agentId `windows` с именем `Windows Codex`;
@@ -80,7 +84,7 @@ Device token не вставляется в prompt, Git, логи или отч�
 - package:
   https://agent-operator.188-241-197-83.sslip.io/v1/onboarding/worker.zip
 - install directory:
-  `$env:LOCALAPPDATA\AgentOperator\0.1.0`
+  `$env:LOCALAPPDATA\AgentOperator\0.1.1`
 - package содержит `install-worker.ps1`, `diagnose.ps1` и `run-worker.ps1`;
 - device token уже создан на coordinator. Запроси его у пользователя через
   скрытый локальный ввод. Не включай token в сообщение, командный вывод или
@@ -103,7 +107,7 @@ Device token не вставляется в prompt, Git, логи или отч�
    `Authorization: Bearer <token>` через `Invoke-WebRequest`, распакуй в
    install directory.
 6. Запусти:
-   `.\install-worker.ps1 -CoordinatorUrl "https://agent-operator.188-241-197-83.sslip.io" -AgentId "windows" -AgentName "Windows Codex" -DeviceToken $DeviceToken -ProjectsFile "$env:LOCALAPPDATA\AgentOperator\projects.json"`.
+   `.\install-worker.ps1 -CoordinatorUrl "https://agent-operator.188-241-197-83.sslip.io" -AgentId "windows" -AgentName "Windows Codex" -DeviceToken $DeviceToken -ProjectsFile "$env:LOCALAPPDATA\AgentOperator\projects.json" -UseNpmCodex`.
 7. Удали переменные с token из текущего PowerShell-сеанса.
 8. Проверь `.\diagnose.ps1`. Успешная диагностика должна показать HTTPS 200,
    `authenticated: true`, доступный Codex и хотя бы один доступный проект.
@@ -121,7 +125,7 @@ Device token не вставляется в prompt, Git, логи или отч�
 - секреты отсутствуют в выводе.
 
 Верни:
-- версию worker `0.1.0`;
+- версию worker `0.1.1`;
 - Windows version и architecture;
 - Codex и Node.js versions;
 - статус coordinator connection и `authenticated`;
