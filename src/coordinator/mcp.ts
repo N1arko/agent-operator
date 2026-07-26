@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod/v4";
+import { GitFileAttachmentSchema } from "../shared/protocol.js";
 import type { CoordinatorStore } from "./store.js";
 
 const response = (value: unknown) => ({
@@ -85,9 +86,10 @@ export const createMcpServer = (
         agentId: z.string().min(1),
         projectId: z.string().min(1),
         message: z.string().min(1),
+        attachments: z.array(GitFileAttachmentSchema).max(20).default([]),
       },
     },
-    ({ agentId, projectId, message }) => {
+    ({ agentId, projectId, message, attachments }) => {
       if (!store.getAgent(agentId)) throw new Error(`Unknown agent: ${agentId}`);
       const project = store
         .listProjects(agentId)
@@ -99,6 +101,7 @@ export const createMcpServer = (
         toAgentId: agentId,
         projectId,
         text: message,
+        attachments,
       });
       return Promise.resolve(response(queued));
     },
@@ -113,9 +116,10 @@ export const createMcpServer = (
       inputSchema: {
         replyTo: z.uuid(),
         message: z.string().min(1),
+        attachments: z.array(GitFileAttachmentSchema).max(20).default([]),
       },
     },
-    ({ replyTo, message }) => {
+    ({ replyTo, message, attachments }) => {
       const previous = store.getMessage(replyTo);
       if (
         previous.fromAgentId !== callerAgentId &&
@@ -135,6 +139,7 @@ export const createMcpServer = (
         replyTo,
         projectId: previous.projectId,
         text: message,
+        attachments,
       });
       return Promise.resolve(response(queued));
     },

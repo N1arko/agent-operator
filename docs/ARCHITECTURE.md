@@ -61,6 +61,7 @@ Coordinator не управляет Codex thread и не читает локал
 - вести очередь новых запусков;
 - доставлять связанное сообщение в активную сессию;
 - автоматически публиковать result;
+- проверять и разрешать Git-вложения в выбранном проекте;
 - загружать и скачивать временные файлы;
 - останавливать app-server после idle timeout.
 
@@ -205,12 +206,22 @@ created_at
 {
   "agentId": "mac-codex",
   "projectId": "project_agent_operator",
-  "message": "Изучи структуру проектов и подготовь рекомендации."
+  "message": "Изучи структуру проектов и подготовь рекомендации.",
+  "attachments": [
+    {
+      "type": "git_file",
+      "repository": "git@github.com:example/project.git",
+      "revision": "a12bc34d",
+      "path": "docs/plan.md",
+      "sha256": "..."
+    }
+  ]
 }
 ```
 
 Создаёт корневое сообщение без `replyTo`. Свободный агент создаёт свежий
 thread в выбранном проекте. Занятый агент сохраняет запуск в очереди.
+`attachments` принимает до 20 Git-файлов.
 
 ### `agent_send`
 
@@ -218,7 +229,8 @@ thread в выбранном проекте. Занятый агент сохр�
 {
   "agentId": "mac-codex",
   "message": "Обрати внимание на архивные проекты.",
-  "replyTo": "msg_123"
+  "replyTo": "msg_123",
+  "attachments": []
 }
 ```
 
@@ -337,9 +349,9 @@ coordinator получает только дескрипторы.
 
 ```json
 {
-  "kind": "git_file",
+  "type": "git_file",
   "repository": "git@github.com:example/project.git",
-  "revision": "a12bc34",
+  "revision": "a12bc34d",
   "path": "docs/plan.md",
   "sha256": "..."
 }
@@ -347,13 +359,19 @@ coordinator получает только дескрипторы.
 
 Получатель:
 
-1. Сопоставляет repository со своей локальной копией.
-2. Выполняет `git fetch`.
-3. Проверяет наличие revision.
-4. Читает `git show <revision>:<path>`.
-5. Сверяет checksum, когда он относится к содержимому файла.
+1. Проверяет относительный Git path и формат commit hash.
+2. Сопоставляет repository с remote выбранного локального проекта, учитывая
+   SSH- и HTTPS-формы одного URL.
+3. Проверяет наличие commit в локальной object database.
+4. Выполняет `git fetch` совпавшего remote, если commit отсутствует.
+5. Разрешает полный commit hash и проверяет наличие path через `git cat-file`.
+6. Потоково вычисляет SHA-256 содержимого blob.
+7. Добавляет в prompt проверенный manifest и инструкцию
+   `git show <revision>:<path>`.
 
-Worker не выполняет checkout и не применяет commit автоматически.
+Worker не выполняет checkout, не меняет текущую ветку и не применяет commit
+автоматически. Ошибка repository, revision, path или checksum завершает запрос
+со статусом `failed` до запуска Codex turn.
 
 ## 11. Передача временного файла
 

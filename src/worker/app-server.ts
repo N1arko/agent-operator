@@ -213,7 +213,7 @@ export class CodexAppServer {
       clientInfo: {
         name: "agent-operator-worker",
         title: "Agent Operator worker",
-        version: "0.1.2",
+        version: "0.1.3",
       },
       capabilities: {
         experimentalApi: true,

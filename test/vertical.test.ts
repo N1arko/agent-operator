@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { execFile } from "node:child_process";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import type { Server } from "node:http";
 import { afterEach, describe, it } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -57,6 +60,14 @@ const servers: Server[] = [];
 const stores: CoordinatorStore[] = [];
 const directories: string[] = [];
 const workers: Worker[] = [];
+const execFileAsync = promisify(execFile);
+
+const git = async (directory: string, ...args: string[]): Promise<string> => {
+  const result = await execFileAsync("git", ["-C", directory, ...args], {
+    encoding: "utf8",
+  });
+  return result.stdout.trim();
+};
 
 afterEach(async () => {
   await Promise.all(workers.splice(0).map((worker) => worker.stop()));
@@ -77,6 +88,25 @@ describe("local vertical scenario", () => {
   it("discovers a worker, starts a task, waits and resumes its thread", async () => {
     const directory = await mkdtemp(join(tmpdir(), "aop-vertical-"));
     directories.push(directory);
+    await git(directory, "init");
+    await git(directory, "config", "user.name", "Agent Operator Test");
+    await git(directory, "config", "user.email", "test@example.invalid");
+    await mkdir(join(directory, "docs"));
+    const attachmentContent = "shared plan\n";
+    await writeFile(join(directory, "docs", "shared.md"), attachmentContent);
+    await git(directory, "add", "docs/shared.md");
+    await git(directory, "commit", "-m", "Add shared plan");
+    await git(
+      directory,
+      "remote",
+      "add",
+      "origin",
+      "git@github.com:example/local-project.git",
+    );
+    const attachmentRevision = await git(directory, "rev-parse", "HEAD");
+    const attachmentSha256 = createHash("sha256")
+      .update(attachmentContent)
+      .digest("hex");
     const projectsFile = join(directory, "projects.json");
     await writeFile(
       projectsFile,
@@ -153,6 +183,15 @@ describe("local vertical scenario", () => {
         agentId: "mac",
         projectId: "local-project",
         message: "first",
+        attachments: [
+          {
+            type: "git_file",
+            repository: "https://github.com/example/local-project.git",
+            revision: attachmentRevision,
+            path: "docs/shared.md",
+            sha256: attachmentSha256,
+          },
+        ],
       },
     });
     const startMessage = started.structuredContent as { id: string };
@@ -164,7 +203,9 @@ describe("local vertical scenario", () => {
       messages: Array<{ id: string; text: string; cursor: number }>;
       nextCursor: number;
     };
-    assert.equal(firstOutput.messages[0]?.text, "done: first");
+    assert.equal(firstOutput.messages[0]?.text.startsWith("done: first"), true);
+    assert.match(fakeAppServer.starts[0]?.prompt ?? "", /docs\/shared\.md/);
+    assert.match(fakeAppServer.starts[0]?.prompt ?? "", /git show/);
 
     await client.callTool({
       name: "agent_send",

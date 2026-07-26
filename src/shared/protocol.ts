@@ -1,5 +1,13 @@
 import * as z from "zod/v4";
 
+const hasControlCharacter = (value: string): boolean => {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code <= 31 || code === 127) return true;
+  }
+  return false;
+};
+
 export const AgentStateSchema = z.enum(["idle", "busy", "offline", "error"]);
 export type AgentState = z.infer<typeof AgentStateSchema>;
 
@@ -22,22 +30,48 @@ export const AgentDescriptorSchema = z.object({
 });
 export type AgentDescriptor = z.infer<typeof AgentDescriptorSchema>;
 
+const safeGitPath = (value: string): boolean => {
+  if (
+    value.startsWith("/") ||
+    value.includes("\\") ||
+    hasControlCharacter(value)
+  ) {
+    return false;
+  }
+  const segments = value.split("/");
+  return segments.every(
+    (segment) => segment.length > 0 && segment !== "." && segment !== "..",
+  );
+};
+
+export const GitFileAttachmentSchema = z.object({
+  type: z.literal("git_file"),
+  repository: z
+    .string()
+    .min(1)
+    .max(2048)
+    .refine((value) => !hasControlCharacter(value), "Invalid repository"),
+  revision: z
+    .string()
+    .regex(/^[a-fA-F0-9]{7,64}$/, "Revision must be a Git commit hash")
+    .transform((value) => value.toLowerCase()),
+  path: z.string().min(1).max(1024).refine(safeGitPath, "Unsafe Git path"),
+  sha256: z.string().regex(/^[a-f0-9]{64}$/),
+});
+export type GitFileAttachment = z.infer<typeof GitFileAttachmentSchema>;
+
+export const TemporaryFileAttachmentSchema = z.object({
+  type: z.literal("temporary_file"),
+  fileId: z.uuid(),
+  name: z.string().min(1),
+  size: z.number().int().nonnegative(),
+  sha256: z.string().regex(/^[a-f0-9]{64}$/),
+  expiresAt: z.string(),
+});
+
 export const AttachmentSchema = z.discriminatedUnion("type", [
-  z.object({
-    type: z.literal("git_file"),
-    repository: z.string().min(1),
-    revision: z.string().min(1),
-    path: z.string().min(1),
-    sha256: z.string().regex(/^[a-f0-9]{64}$/),
-  }),
-  z.object({
-    type: z.literal("temporary_file"),
-    fileId: z.uuid(),
-    name: z.string().min(1),
-    size: z.number().int().nonnegative(),
-    sha256: z.string().regex(/^[a-f0-9]{64}$/),
-    expiresAt: z.string(),
-  }),
+  GitFileAttachmentSchema,
+  TemporaryFileAttachmentSchema,
 ]);
 export type Attachment = z.infer<typeof AttachmentSchema>;
 

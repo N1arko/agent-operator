@@ -212,16 +212,18 @@ Codex может самостоятельно отправить `update`, `ques
 
 ```json
 {
-  "kind": "git_file",
+  "type": "git_file",
   "repository": "git@github.com:example/project.git",
-  "revision": "a12bc34",
+  "revision": "a12bc34d",
   "path": "docs/migration-plan.md",
   "sha256": "..."
 }
 ```
 
-Получатель выполняет fetch и читает файл по commit без переключения активной
-ветки. Применение commit остаётся отдельным локальным действием.
+Получатель сопоставляет repository с remote выбранного локального проекта,
+проверяет commit, path и SHA-256. Fetch выполняется при отсутствии commit в
+локальной object database. Файл читается через `git show` без переключения
+активной ветки. Применение commit остаётся отдельным локальным действием.
 
 ### Локальный файл
 

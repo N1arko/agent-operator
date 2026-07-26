@@ -2,11 +2,13 @@ import { access, readFile } from "node:fs/promises";
 import {
   ProjectDescriptorSchema,
   WorkerConfigFileSchema,
+  type GitFileAttachment,
   type Message,
   type ProjectConfig,
 } from "../shared/protocol.js";
 import type { TurnHandle } from "./app-server.js";
 import { CoordinatorClient } from "./client.js";
+import { appendGitFilesToPrompt, resolveGitFile } from "./git-file.js";
 import { loadState, saveState, type WorkerState } from "./state.js";
 
 type WorkItem = {
@@ -86,6 +88,7 @@ export class Worker {
     }
     if (message.kind !== "send") return;
     if (
+      message.attachments.length === 0 &&
       this.active?.item.message.rootMessageId === message.rootMessageId &&
       (await this.options.appServer.steer(this.active.handle, message.text))
     ) {
@@ -106,12 +109,13 @@ export class Worker {
       const project = this.projects.find((entry) => entry.id === projectId);
       if (!project) throw new Error(`Unknown local project: ${projectId}`);
       await access(project.path);
+      const prompt = await this.preparePrompt(item.message, project);
       const activity = `${project.name}: ${item.message.text.slice(0, 160)}`;
       let handle: TurnHandle;
       if (item.mode === "start") {
         handle = await this.options.appServer.startThread(
           project.path,
-          item.message.text,
+          prompt,
         );
         this.state.threads[item.message.rootMessageId] = {
           threadId: handle.threadId,
@@ -129,7 +133,7 @@ export class Worker {
         handle = await this.options.appServer.resumeThread(
           binding.threadId,
           project.path,
-          item.message.text,
+          prompt,
         );
       }
       this.active = { item, handle, activity };
@@ -180,6 +184,24 @@ export class Worker {
     return parsed.projects;
   }
 
+  private async preparePrompt(
+    message: Message,
+    project: ProjectConfig,
+  ): Promise<string> {
+    const unsupported = message.attachments.find(
+      (attachment) => attachment.type !== "git_file",
+    );
+    if (unsupported) {
+      throw new Error(`Unsupported attachment type: ${unsupported.type}`);
+    }
+    const attachments = message.attachments as GitFileAttachment[];
+    const files = [];
+    for (const attachment of attachments) {
+      files.push(await resolveGitFile(project, attachment));
+    }
+    return appendGitFilesToPrompt(message.text, files);
+  }
+
   private async sendHeartbeat(): Promise<void> {
     const descriptors = await Promise.all(
       this.projects.map(async (project) => {
@@ -209,7 +231,7 @@ export class Worker {
         null,
       currentActivity: this.active?.activity ?? null,
       projects: descriptors,
-      workerVersion: "0.1.2",
+      workerVersion: "0.1.3",
     });
   }
 }

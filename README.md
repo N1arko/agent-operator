@@ -29,6 +29,7 @@ VPS выполняет роль mailbox и presence-сервиса: хранит
 - [Архитектурный черновик](docs/ARCHITECTURE.md)
 - [Профиль VPS clawvpn](docs/DEPLOYMENT_CLAWVPN.md)
 - [Checkpoint подключения Windows](docs/CHECKPOINT_WINDOWS.md)
+- [Обновление Windows-worker 0.1.3](docs/UPDATE_WINDOWS_0.1.3.md)
 - [Канбан разработки](KANBAN.md)
 
 ## Статус
@@ -47,3 +48,8 @@ MVP версии `0.1.2` прошёл `CP-WIN-01`:
 
 Публичный endpoint:
 `https://agent-operator.188-241-197-83.sslip.io`.
+
+Версия `0.1.3` добавляет проверяемые Git-вложения для `agent_start` и
+`agent_send`. Вложение содержит repository, commit hash, относительный path и
+SHA-256. Worker проверяет файл в локальном проекте и передаёт Codex manifest
+для чтения через `git show` без checkout.

@@ -57,7 +57,7 @@ export const createCoordinatorApp = (
     response.type("application/zip");
     response.setHeader(
       "content-disposition",
-      'attachment; filename="agent-operator-worker-0.1.2.zip"',
+      'attachment; filename="agent-operator-worker-0.1.3.zip"',
     );
     createReadStream(path).pipe(response);
   });
