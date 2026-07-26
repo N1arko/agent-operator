@@ -54,3 +54,5 @@ MVP прошёл `CP-WIN-01` на реальном Windows-worker:
 Версия `0.1.4` добавляет `agent_threads` и `agent_thread_send`. Поиск читает
 локальный индекс Codex с лимитом до 20 результатов и не публикует абсолютные
 пути. Продолжение по `threadId` работает для задач вне project registry.
+Coordinator, Mac-worker и Windows-worker работают на `0.1.4`; живые проверки
+на обоих компьютерах завершены.

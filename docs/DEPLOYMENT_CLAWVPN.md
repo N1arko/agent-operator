@@ -168,11 +168,14 @@ Coordinator доступен внутри Docker network на `8787`. В инт�
 - удалённый тест Mac → VPS → Windows → VPS → Mac получил итоговый текст
   `ready` после восстановления Windows-worker;
 - coordinator и Mac-worker обновлены до `0.1.4`;
+- Windows-worker обновлён до `0.1.4` и публикует heartbeat;
 - реальный `git_file` E2E от identity Windows к Mac проверил committed
   ADR-0004 и получил точный заголовок без изменения текущей ветки;
 - Windows bundle `0.1.4` опубликован через onboarding endpoint;
 - живой Mac E2E создал задачу, нашёл её в bounded-выдаче и продолжил по
   `threadId`;
+- живой Windows E2E получил 20 кратких записей, нашёл существующую задачу по
+  ID и продолжил её с результатом `WINDOWS_THREAD_ATTACH_OK`;
 - SQLite сохраняется в bind mount при пересоздании container.
 
 ## 11. Готовность
