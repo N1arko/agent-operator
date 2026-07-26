@@ -176,6 +176,18 @@ queued → delivered → completed
 
 Новая просьба не заменяет активную сессию.
 
+### `agent_threads`
+
+Ставит worker ограниченный запрос поиска недавних локальных задач. Worker
+читает индекс Codex state DB, возвращает до 20 кратких записей и сохраняет
+локальные пути на своём компьютере.
+
+### `agent_thread_send`
+
+Начинает новый turn в существующей задаче по точному `threadId`. Сопоставление
+с опубликованным проектом является опциональным. Активная задача сообщает
+отправителю, что её текущий turn ещё выполняется.
+
 ### `agent_wait`
 
 Ждёт новое сообщение или изменение статуса после заданного cursor. Ожидание
@@ -253,13 +265,17 @@ agents_list
 agent_status
 agent_projects
 agent_start
+agent_threads
+agent_thread_send
 agent_send
 agent_wait
 ```
 
 `agents_list` показывает только агентов и состояние. `agent_projects`
 возвращает проекты конкретного агента. `agent_start` создаёт свежий thread в
-выбранном проекте. `agent_send` продолжает связанную работу по `replyTo`.
+выбранном проекте. `agent_threads` выполняет bounded-поиск в локальном индексе.
+`agent_thread_send` продолжает задачу по точному ID. `agent_send` продолжает
+связанную работу по `replyTo`.
 
 ## 11. Ресурсная модель
 
@@ -283,7 +299,7 @@ active turns per agent: 1
 app-server idle timeout: 5 minutes
 worker polling: long polling
 file transfer: explicit
-folder scanning: only during an agent request
+thread search: state DB only, limit 20
 ```
 
 ## 12. Объём MVP
@@ -295,6 +311,8 @@ folder scanning: only during an agent request
 - `idle`, `busy`, `offline`;
 - краткая текущая активность;
 - список локальных Codex-проектов;
+- ограниченный поиск локальных задач;
+- продолжение существующей задачи по точному ID;
 - запуск свежего thread в выбранном проекте;
 - durable mailbox;
 - связанные сообщения через `replyTo`;
@@ -324,7 +342,8 @@ MVP готов, когда:
 10. Git-файл читается вторым агентом по commit.
 11. Временный файл передаётся с проверкой checksum и удалением по TTL.
 12. Перезапуск worker сохраняет очередь и локальный thread.
-13. Измерена нагрузка worker и app-server в idle и active режимах.
+13. Поиск задач использует state DB и возвращает не более 20 записей.
+14. Измерена нагрузка worker и app-server в idle и active режимах.
 
 ## 14. Отложенное развитие
 
@@ -335,5 +354,4 @@ MVP готов, когда:
 - автоматическая оркестрация нескольких агентов;
 - расписания;
 - уведомления;
-- список и продолжение произвольных старых чатов;
 - нативная упаковка и автообновление.

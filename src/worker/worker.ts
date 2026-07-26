@@ -1,4 +1,6 @@
 import { access, readFile } from "node:fs/promises";
+import { isAbsolute, relative, resolve, sep } from "node:path";
+import * as z from "zod/v4";
 import {
   ProjectDescriptorSchema,
   WorkerConfigFileSchema,
@@ -6,15 +8,20 @@ import {
   type Message,
   type ProjectConfig,
 } from "../shared/protocol.js";
-import type { TurnHandle } from "./app-server.js";
+import type { LocalThread, TurnHandle } from "./app-server.js";
 import { CoordinatorClient } from "./client.js";
 import { appendGitFilesToPrompt, resolveGitFile } from "./git-file.js";
 import { loadState, saveState, type WorkerState } from "./state.js";
 
 type WorkItem = {
   message: Message;
-  mode: "start" | "resume";
+  mode: "start" | "resume" | "threads_query" | "thread_send";
 };
+
+const ThreadsQuerySchema = z.object({
+  query: z.string().trim().min(1).max(200).optional(),
+  limit: z.number().int().min(1).max(20),
+});
 
 export type WorkerOptions = {
   agentName: string;
@@ -26,9 +33,11 @@ export type WorkerOptions = {
     startThread(cwd: string, prompt: string): Promise<TurnHandle>;
     resumeThread(
       threadId: string,
-      cwd: string,
+      cwd: string | undefined,
       prompt: string,
     ): Promise<TurnHandle>;
+    listThreads(query: string | undefined, limit: number): Promise<LocalThread[]>;
+    readThread(threadId: string): Promise<LocalThread>;
     steer(handle: TurnHandle, message: string): Promise<boolean>;
     stop(): Promise<void>;
   };
@@ -43,6 +52,7 @@ export class Worker {
     | { item: WorkItem; handle: TurnHandle; activity: string }
     | undefined;
   private stopped = false;
+  private running = false;
   private heartbeatTimer: NodeJS.Timeout | undefined;
 
   constructor(private readonly options: WorkerOptions) {}
@@ -86,6 +96,16 @@ export class Worker {
       void this.runNext();
       return;
     }
+    if (message.kind === "threads_query") {
+      this.queue.push({ message, mode: "threads_query" });
+      void this.runNext();
+      return;
+    }
+    if (message.kind === "thread_send") {
+      this.queue.push({ message, mode: "thread_send" });
+      void this.runNext();
+      return;
+    }
     if (message.kind !== "send") return;
     if (
       message.attachments.length === 0 &&
@@ -99,43 +119,22 @@ export class Worker {
   }
 
   private async runNext(): Promise<void> {
-    if (this.active || this.queue.length === 0) return;
+    if (this.running || this.active || this.queue.length === 0) return;
     const item = this.queue.shift();
     if (!item) return;
+    this.running = true;
     try {
-      const projectId =
-        item.message.projectId ??
-        this.state.threads[item.message.rootMessageId]?.projectId;
-      const project = this.projects.find((entry) => entry.id === projectId);
-      if (!project) throw new Error(`Unknown local project: ${projectId}`);
-      await access(project.path);
-      const prompt = await this.preparePrompt(item.message, project);
-      const activity = `${project.name}: ${item.message.text.slice(0, 160)}`;
-      let handle: TurnHandle;
-      if (item.mode === "start") {
-        handle = await this.options.appServer.startThread(
-          project.path,
-          prompt,
-        );
-        this.state.threads[item.message.rootMessageId] = {
-          threadId: handle.threadId,
-          projectId: project.id,
-          requesterAgentId: item.message.fromAgentId,
-        };
-        await saveState(this.options.stateFile, this.state);
-      } else {
-        const binding = this.state.threads[item.message.rootMessageId];
-        if (!binding) {
-          throw new Error(
-            `No thread binding for ${item.message.rootMessageId}`,
-          );
-        }
-        handle = await this.options.appServer.resumeThread(
-          binding.threadId,
-          project.path,
-          prompt,
-        );
+      if (item.mode === "threads_query") {
+        await this.findThreads(item);
+        return;
       }
+
+      const { handle, activity } =
+        item.mode === "start"
+          ? await this.startProjectThread(item)
+          : item.mode === "thread_send"
+            ? await this.startExistingThread(item)
+            : await this.resumeBoundThread(item);
       this.active = { item, handle, activity };
       await this.sendHeartbeat();
       void handle.completed
@@ -153,7 +152,142 @@ export class Worker {
         "failed",
         error instanceof Error ? error.message : String(error),
       );
+    } finally {
+      this.running = false;
+      if (!this.active) void this.runNext();
     }
+  }
+
+  private async startProjectThread(
+    item: WorkItem,
+  ): Promise<{ handle: TurnHandle; activity: string }> {
+    const project = this.projects.find(
+      (entry) => entry.id === item.message.projectId,
+    );
+    if (!project) {
+      throw new Error(`Unknown local project: ${item.message.projectId}`);
+    }
+    await access(project.path);
+    const prompt = await this.preparePrompt(item.message, project);
+    const handle = await this.options.appServer.startThread(project.path, prompt);
+    this.state.threads[item.message.rootMessageId] = {
+      threadId: handle.threadId,
+      projectId: project.id,
+      requesterAgentId: item.message.fromAgentId,
+    };
+    await saveState(this.options.stateFile, this.state);
+    return {
+      handle,
+      activity: `${project.name}: ${item.message.text.slice(0, 160)}`,
+    };
+  }
+
+  private async resumeBoundThread(
+    item: WorkItem,
+  ): Promise<{ handle: TurnHandle; activity: string }> {
+    const binding = this.state.threads[item.message.rootMessageId];
+    if (!binding) {
+      throw new Error(`No thread binding for ${item.message.rootMessageId}`);
+    }
+    const project = binding.projectId
+      ? this.projects.find((entry) => entry.id === binding.projectId)
+      : undefined;
+    if (binding.projectId && !project) {
+      throw new Error(`Unknown local project: ${binding.projectId}`);
+    }
+    if (project) await access(project.path);
+    const prompt = await this.preparePrompt(item.message, project);
+    return {
+      handle: await this.options.appServer.resumeThread(
+        binding.threadId,
+        project?.path,
+        prompt,
+      ),
+      activity: `${project?.name ?? "Existing task"}: ${item.message.text.slice(0, 160)}`,
+    };
+  }
+
+  private async startExistingThread(
+    item: WorkItem,
+  ): Promise<{ handle: TurnHandle; activity: string }> {
+    const threadId = item.message.targetThreadId;
+    if (!threadId) throw new Error("Missing target thread ID");
+    const thread = await this.options.appServer.readThread(threadId);
+    if (thread.status === "active") {
+      throw new Error(
+        `Thread ${threadId} is active; wait until it becomes available`,
+      );
+    }
+    const project = this.projectForCwd(thread.cwd);
+    const prompt = await this.preparePrompt(item.message, project);
+    const handle = await this.options.appServer.resumeThread(
+      threadId,
+      undefined,
+      prompt,
+    );
+    this.state.threads[item.message.rootMessageId] = {
+      threadId,
+      projectId: project?.id ?? null,
+      requesterAgentId: item.message.fromAgentId,
+    };
+    await saveState(this.options.stateFile, this.state);
+    return {
+      handle,
+      activity: `${project?.name ?? thread.title ?? "Existing task"}: ${item.message.text.slice(0, 160)}`,
+    };
+  }
+
+  private async findThreads(item: WorkItem): Promise<void> {
+    const input = ThreadsQuerySchema.parse(JSON.parse(item.message.text));
+    const threads = await this.options.appServer.listThreads(
+      input.query,
+      input.limit,
+    );
+    const summaries = threads.map((thread) => {
+      const project = this.projectForCwd(thread.cwd);
+      return {
+        threadId: thread.threadId,
+        title: thread.title,
+        preview: thread.preview.slice(0, 240),
+        updatedAt:
+          thread.updatedAt > 0
+            ? new Date(thread.updatedAt * 1_000).toISOString()
+            : null,
+        status: thread.status,
+        activeFlags: thread.activeFlags,
+        source: thread.source,
+        available:
+          thread.status === "idle"
+            ? true
+            : thread.status === "active"
+              ? false
+              : null,
+        project: project ? { id: project.id, name: project.name } : null,
+      };
+    });
+    await this.complete(
+      item,
+      "completed",
+      JSON.stringify({
+        query: input.query ?? null,
+        limit: input.limit,
+        returned: summaries.length,
+        threads: summaries,
+      }),
+    );
+  }
+
+  private projectForCwd(cwd: string): ProjectConfig | undefined {
+    const threadPath = resolve(cwd);
+    return this.projects.find((project) => {
+      const child = relative(resolve(project.path), threadPath);
+      return (
+        child === "" ||
+        (!isAbsolute(child) &&
+          child !== ".." &&
+          !child.startsWith(`..${sep}`))
+      );
+    });
   }
 
   private async complete(
@@ -186,7 +320,7 @@ export class Worker {
 
   private async preparePrompt(
     message: Message,
-    project: ProjectConfig,
+    project: ProjectConfig | undefined,
   ): Promise<string> {
     const unsupported = message.attachments.find(
       (attachment) => attachment.type !== "git_file",
@@ -195,6 +329,12 @@ export class Worker {
       throw new Error(`Unsupported attachment type: ${unsupported.type}`);
     }
     const attachments = message.attachments as GitFileAttachment[];
+    if (attachments.length === 0) return message.text;
+    if (!project) {
+      throw new Error(
+        "Git attachments require a thread mapped to a published project",
+      );
+    }
     const files = [];
     for (const attachment of attachments) {
       files.push(await resolveGitFile(project, attachment));
@@ -231,7 +371,7 @@ export class Worker {
         null,
       currentActivity: this.active?.activity ?? null,
       projects: descriptors,
-      workerVersion: "0.1.3",
+      workerVersion: "0.1.4",
     });
   }
 }

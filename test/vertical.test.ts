@@ -12,12 +12,28 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { CoordinatorStore } from "../src/coordinator/store.js";
 import { createCoordinatorApp } from "../src/coordinator/server.js";
 import type { TurnHandle } from "../src/worker/app-server.js";
+import type { LocalThread } from "../src/worker/app-server.js";
 import { CoordinatorClient } from "../src/worker/client.js";
 import { Worker } from "../src/worker/worker.js";
 
 class FakeAppServer {
   starts: Array<{ cwd: string; prompt: string }> = [];
-  resumes: Array<{ threadId: string; cwd: string; prompt: string }> = [];
+  resumes: Array<{
+    threadId: string;
+    cwd: string | undefined;
+    prompt: string;
+  }> = [];
+  listCalls: Array<{ query: string | undefined; limit: number }> = [];
+  externalThread: LocalThread = {
+    threadId: "019f9ff2-42a3-7c43-92e9-ab1b9794e043",
+    title: "Windows setup",
+    preview: "Update the Windows worker",
+    cwd: "C:\\Users\\nikit\\Documents\\Codex\\projectless",
+    updatedAt: 1_753_488_000,
+    status: "notLoaded",
+    activeFlags: [],
+    source: "appServer",
+  };
   private sequence = 0;
 
   startThread(cwd: string, prompt: string): Promise<TurnHandle> {
@@ -27,11 +43,24 @@ class FakeAppServer {
 
   resumeThread(
     threadId: string,
-    cwd: string,
+    cwd: string | undefined,
     prompt: string,
   ): Promise<TurnHandle> {
     this.resumes.push({ threadId, cwd, prompt });
     return Promise.resolve(this.handle(threadId, prompt));
+  }
+
+  listThreads(
+    query: string | undefined,
+    limit: number,
+  ): Promise<LocalThread[]> {
+    this.listCalls.push({ query, limit });
+    return Promise.resolve([this.externalThread]);
+  }
+
+  readThread(threadId: string): Promise<LocalThread> {
+    assert.equal(threadId, this.externalThread.threadId);
+    return Promise.resolve(this.externalThread);
   }
 
   steer(): Promise<boolean> {
@@ -220,10 +249,104 @@ describe("local vertical scenario", () => {
     });
     const secondOutput = secondWait.structuredContent as {
       messages: Array<{ text: string }>;
+      nextCursor: number;
     };
     assert.equal(secondOutput.messages[0]?.text, "done: follow-up");
     assert.equal(fakeAppServer.starts.length, 1);
     assert.equal(fakeAppServer.resumes[0]?.threadId, "thread-1");
+
+    await client.callTool({
+      name: "agent_threads",
+      arguments: { agentId: "mac", query: "Windows", limit: 7 },
+    });
+    const searchWait = await client.callTool({
+      name: "agent_wait",
+      arguments: {
+        afterCursor: secondOutput.nextCursor,
+        timeoutMs: 5_000,
+      },
+    });
+    const searchOutput = searchWait.structuredContent as {
+      messages: Array<{ text: string }>;
+      nextCursor: number;
+    };
+    const searchResult = JSON.parse(searchOutput.messages[0]?.text ?? "{}") as {
+      threads: Array<{
+        threadId: string;
+        project: unknown;
+        preview: string;
+      }>;
+    };
+    assert.deepEqual(fakeAppServer.listCalls, [
+      { query: "Windows", limit: 7 },
+    ]);
+    assert.equal(
+      searchResult.threads[0]?.threadId,
+      fakeAppServer.externalThread.threadId,
+    );
+    assert.equal(searchResult.threads[0].project, null);
+    assert.equal(
+      JSON.stringify(searchResult).includes(
+        fakeAppServer.externalThread.cwd,
+      ),
+      false,
+    );
+
+    const external = await client.callTool({
+      name: "agent_thread_send",
+      arguments: {
+        agentId: "mac",
+        threadId: fakeAppServer.externalThread.threadId,
+        message: "report status",
+      },
+    });
+    const externalMessage = external.structuredContent as { id: string };
+    const externalWait = await client.callTool({
+      name: "agent_wait",
+      arguments: {
+        afterCursor: searchOutput.nextCursor,
+        timeoutMs: 5_000,
+      },
+    });
+    const externalOutput = externalWait.structuredContent as {
+      messages: Array<{ text: string; rootMessageId: string }>;
+      nextCursor: number;
+    };
+    assert.equal(externalOutput.messages[0]?.text, "done: report status");
+    assert.equal(
+      externalOutput.messages[0].rootMessageId,
+      externalMessage.id,
+    );
+    assert.deepEqual(fakeAppServer.resumes.at(-1), {
+      threadId: fakeAppServer.externalThread.threadId,
+      cwd: undefined,
+      prompt: "report status",
+    });
+
+    fakeAppServer.externalThread.status = "active";
+    await client.callTool({
+      name: "agent_thread_send",
+      arguments: {
+        agentId: "mac",
+        threadId: fakeAppServer.externalThread.threadId,
+        message: "do not interrupt",
+      },
+    });
+    const activeWait = await client.callTool({
+      name: "agent_wait",
+      arguments: {
+        afterCursor: externalOutput.nextCursor,
+        timeoutMs: 5_000,
+      },
+    });
+    const activeOutput = activeWait.structuredContent as {
+      messages: Array<{ text: string; status: string }>;
+    };
+    const activeResult = activeOutput.messages[0];
+    assert.ok(activeResult);
+    assert.equal(activeResult.status, "failed");
+    assert.match(activeResult.text, /is active/);
+    assert.equal(fakeAppServer.resumes.length, 2);
 
     await client.close();
     await worker.stop();

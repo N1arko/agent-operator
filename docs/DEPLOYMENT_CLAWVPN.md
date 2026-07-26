@@ -87,7 +87,7 @@ Coordinator должен сохранять один активный проце
 │   ├── backups/
 │   ├── compose.yaml
 │   └── Caddyfile
-└── release/agent-operator-worker-0.1.3.zip
+└── release/agent-operator-worker-0.1.4.zip
 ```
 
 ## 6. Контейнеры
@@ -167,10 +167,12 @@ Coordinator доступен внутри Docker network на `8787`. В инт�
   `REMOTE_E2E_OK`;
 - удалённый тест Mac → VPS → Windows → VPS → Mac получил итоговый текст
   `ready` после восстановления Windows-worker;
-- coordinator и Mac-worker обновлены до `0.1.3`;
+- coordinator и Mac-worker обновлены до `0.1.4`;
 - реальный `git_file` E2E от identity Windows к Mac проверил committed
   ADR-0004 и получил точный заголовок без изменения текущей ветки;
-- Windows bundle `0.1.3` опубликован через защищённый onboarding endpoint;
+- Windows bundle `0.1.4` опубликован через onboarding endpoint;
+- живой Mac E2E создал задачу, нашёл её в bounded-выдаче и продолжил по
+  `threadId`;
 - SQLite сохраняется в bind mount при пересоздании container.
 
 ## 11. Готовность

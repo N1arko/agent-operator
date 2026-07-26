@@ -43,6 +43,8 @@ describe("Agent Operator MCP", () => {
         "agent_status",
         "agent_projects",
         "agent_start",
+        "agent_threads",
+        "agent_thread_send",
         "agent_send",
         "agent_wait",
       ],
@@ -61,6 +63,37 @@ describe("Agent Operator MCP", () => {
       rootMessageId: string;
     };
     assert.equal(start.rootMessageId, start.id);
+
+    const threadSearch = await client.callTool({
+      name: "agent_threads",
+      arguments: { agentId: "mac", query: "planning", limit: 5 },
+    });
+    const searchMessage = threadSearch.structuredContent as {
+      kind: string;
+      text: string;
+    };
+    assert.equal(searchMessage.kind, "threads_query");
+    assert.deepEqual(JSON.parse(searchMessage.text), {
+      query: "planning",
+      limit: 5,
+    });
+
+    const threadSend = await client.callTool({
+      name: "agent_thread_send",
+      arguments: {
+        agentId: "mac",
+        threadId: "019f9ff2-42a3-7c43-92e9-ab1b9794e043",
+        message: "Continue",
+      },
+    });
+    assert.equal(
+      (
+        threadSend.structuredContent as {
+          targetThreadId: string;
+        }
+      ).targetThreadId,
+      "019f9ff2-42a3-7c43-92e9-ab1b9794e043",
+    );
 
     store.createMessage({
       kind: "result",

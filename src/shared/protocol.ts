@@ -75,7 +75,13 @@ export const AttachmentSchema = z.discriminatedUnion("type", [
 ]);
 export type Attachment = z.infer<typeof AttachmentSchema>;
 
-export const MessageKindSchema = z.enum(["start", "send", "result"]);
+export const MessageKindSchema = z.enum([
+  "start",
+  "send",
+  "threads_query",
+  "thread_send",
+  "result",
+]);
 export type MessageKind = z.infer<typeof MessageKindSchema>;
 
 export const MessageSchema = z.object({
@@ -87,6 +93,7 @@ export const MessageSchema = z.object({
   rootMessageId: z.uuid(),
   replyTo: z.uuid().nullable(),
   projectId: z.string().nullable(),
+  targetThreadId: z.uuid().nullable(),
   text: z.string(),
   attachments: z.array(AttachmentSchema),
   status: z.enum(["queued", "delivered", "completed", "failed"]),

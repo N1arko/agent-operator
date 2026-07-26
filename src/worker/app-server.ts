@@ -19,8 +19,63 @@ export type TurnHandle = {
   completed: Promise<{ status: string; text: string }>;
 };
 
+export type LocalThread = {
+  threadId: string;
+  title: string | null;
+  preview: string;
+  cwd: string;
+  updatedAt: number;
+  status: "notLoaded" | "idle" | "systemError" | "active" | "unknown";
+  activeFlags: string[];
+  source: string;
+};
+
 const asObject = (value: unknown): JsonObject | null =>
   typeof value === "object" && value !== null ? (value as JsonObject) : null;
+
+const threadStatus = (
+  value: unknown,
+): Pick<LocalThread, "status" | "activeFlags"> => {
+  const status = asObject(value);
+  const type = status?.type;
+  const known =
+    type === "notLoaded" ||
+    type === "idle" ||
+    type === "systemError" ||
+    type === "active"
+      ? type
+      : "unknown";
+  return {
+    status: known,
+    activeFlags: Array.isArray(status?.activeFlags)
+      ? status.activeFlags.map(String)
+      : [],
+  };
+};
+
+const threadSource = (value: unknown): string => {
+  if (typeof value === "string") return value;
+  const source = asObject(value);
+  if (!source) return "unknown";
+  if (typeof source.custom === "string") return source.custom;
+  if ("subAgent" in source) return "subAgent";
+  return "unknown";
+};
+
+const localThread = (value: unknown): LocalThread => {
+  const thread = asObject(value);
+  if (!thread) throw new Error("Invalid thread response from app-server");
+  return {
+    threadId: String(thread.id),
+    title: typeof thread.name === "string" ? thread.name : null,
+    preview: typeof thread.preview === "string" ? thread.preview : "",
+    cwd: String(thread.cwd),
+    updatedAt:
+      typeof thread.updatedAt === "number" ? thread.updatedAt : 0,
+    ...threadStatus(thread.status),
+    source: threadSource(thread.source),
+  };
+};
 
 const agentMessageText = (items: JsonObject[]): string => {
   const messages = items.filter(
@@ -98,6 +153,7 @@ export class CodexAppServer {
   ) {}
 
   async startThread(cwd: string, prompt: string): Promise<TurnHandle> {
+    this.cancelIdleStop();
     await this.ensureStarted();
     const started = await this.request("thread/start", {
       cwd,
@@ -111,15 +167,53 @@ export class CodexAppServer {
 
   async resumeThread(
     threadId: string,
-    cwd: string,
+    cwd: string | undefined,
     prompt: string,
   ): Promise<TurnHandle> {
+    this.cancelIdleStop();
     await this.ensureStarted();
-    await this.request("thread/resume", { threadId, cwd });
+    await this.request("thread/resume", {
+      threadId,
+      ...(cwd ? { cwd } : {}),
+    });
     return this.startTurn(threadId, prompt);
   }
 
+  async listThreads(query: string | undefined, limit: number): Promise<LocalThread[]> {
+    this.cancelIdleStop();
+    await this.ensureStarted();
+    try {
+      const response = await this.request("thread/list", {
+        archived: false,
+        limit: Math.min(Math.max(limit, 1), 20),
+        useStateDbOnly: true,
+        ...(query ? { searchTerm: query } : {}),
+        sortKey: "recency_at",
+        sortDirection: "desc",
+      });
+      const data = Array.isArray(response.data) ? response.data : [];
+      return data.map(localThread);
+    } finally {
+      this.scheduleIdleStop();
+    }
+  }
+
+  async readThread(threadId: string): Promise<LocalThread> {
+    this.cancelIdleStop();
+    await this.ensureStarted();
+    try {
+      const response = await this.request("thread/read", {
+        threadId,
+        includeTurns: false,
+      });
+      return localThread(response.thread);
+    } finally {
+      this.scheduleIdleStop();
+    }
+  }
+
   async steer(handle: TurnHandle, message: string): Promise<boolean> {
+    this.cancelIdleStop();
     await this.ensureStarted();
     try {
       await this.request("turn/steer", {
@@ -155,7 +249,7 @@ export class CodexAppServer {
     threadId: string,
     prompt: string,
   ): Promise<TurnHandle> {
-    if (this.idleTimer) clearTimeout(this.idleTimer);
+    this.cancelIdleStop();
     const response = await this.request("turn/start", {
       threadId,
       input: [textInput(prompt)],
@@ -213,7 +307,7 @@ export class CodexAppServer {
       clientInfo: {
         name: "agent-operator-worker",
         title: "Agent Operator worker",
-        version: "0.1.3",
+        version: "0.1.4",
       },
       capabilities: {
         experimentalApi: true,
@@ -290,5 +384,10 @@ export class CodexAppServer {
   private scheduleIdleStop(): void {
     if (this.idleTimer) clearTimeout(this.idleTimer);
     this.idleTimer = setTimeout(() => void this.stop(), this.idleTimeoutMs);
+  }
+
+  private cancelIdleStop(): void {
+    if (this.idleTimer) clearTimeout(this.idleTimer);
+    this.idleTimer = null;
   }
 }

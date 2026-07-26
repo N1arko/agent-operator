@@ -5,7 +5,7 @@ import * as z from "zod/v4";
 
 const ThreadBindingSchema = z.object({
   threadId: z.string().min(1),
-  projectId: z.string().min(1),
+  projectId: z.string().min(1).nullable(),
   requesterAgentId: z.string().min(1),
 });
 

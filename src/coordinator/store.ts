@@ -20,6 +20,7 @@ type MessageRow = {
   root_message_id: string;
   reply_to: string | null;
   project_id: string | null;
+  target_thread_id: string | null;
   text: string;
   attachments_json: string;
   status: Message["status"];
@@ -77,6 +78,7 @@ export class CoordinatorStore {
         root_message_id TEXT NOT NULL,
         reply_to TEXT,
         project_id TEXT,
+        target_thread_id TEXT,
         text TEXT NOT NULL,
         attachments_json TEXT NOT NULL,
         status TEXT NOT NULL,
@@ -95,6 +97,12 @@ export class CoordinatorStore {
         created_at TEXT NOT NULL
       );
     `);
+    const messageColumns = this.db
+      .prepare("PRAGMA table_info(messages)")
+      .all() as Array<{ name: string }>;
+    if (!messageColumns.some((column) => column.name === "target_thread_id")) {
+      this.db.exec("ALTER TABLE messages ADD COLUMN target_thread_id TEXT");
+    }
   }
 
   heartbeat(agentId: string, input: Heartbeat): void {
@@ -192,6 +200,7 @@ export class CoordinatorStore {
     rootMessageId?: string;
     replyTo?: string | null;
     projectId?: string | null;
+    targetThreadId?: string | null;
     text: string;
     attachments?: Attachment[];
     status?: Message["status"];
@@ -203,8 +212,8 @@ export class CoordinatorStore {
       .prepare(`
         INSERT INTO messages (
           id, kind, from_agent_id, to_agent_id, root_message_id, reply_to,
-          project_id, text, attachments_json, status, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          project_id, target_thread_id, text, attachments_json, status, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
       .run(
         id,
@@ -214,6 +223,7 @@ export class CoordinatorStore {
         rootMessageId,
         input.replyTo ?? null,
         input.projectId ?? null,
+        input.targetThreadId ?? null,
         input.text,
         JSON.stringify(input.attachments ?? []),
         input.status ?? "queued",
@@ -261,6 +271,7 @@ export class CoordinatorStore {
       rootMessageId: row.root_message_id,
       replyTo: row.reply_to,
       projectId: row.project_id,
+      targetThreadId: row.target_thread_id,
       text: row.text,
       attachments: JSON.parse(row.attachments_json) as Attachment[],
       status: row.status,

@@ -108,6 +108,56 @@ export const createMcpServer = (
   );
 
   server.registerTool(
+    "agent_threads",
+    {
+      title: "Find tasks on an agent",
+      description:
+        "Queue a bounded search of recent local Codex tasks by title. The worker reads only the Codex state database and returns up to 20 path-free summaries through agent_wait.",
+      inputSchema: {
+        agentId: z.string().min(1),
+        query: z.string().trim().min(1).max(200).optional(),
+        limit: z.number().int().min(1).max(20).default(10),
+      },
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    ({ agentId, query, limit }) => {
+      if (!store.getAgent(agentId)) throw new Error(`Unknown agent: ${agentId}`);
+      const queued = store.createMessage({
+        kind: "threads_query",
+        fromAgentId: callerAgentId,
+        toAgentId: agentId,
+        text: JSON.stringify({ query, limit }),
+      });
+      return Promise.resolve(response(queued));
+    },
+  );
+
+  server.registerTool(
+    "agent_thread_send",
+    {
+      title: "Send a message to an existing task",
+      description:
+        "Queue a new turn in an existing local Codex task by its exact thread ID. A published project is not required.",
+      inputSchema: {
+        agentId: z.string().min(1),
+        threadId: z.uuid(),
+        message: z.string().min(1),
+      },
+    },
+    ({ agentId, threadId, message }) => {
+      if (!store.getAgent(agentId)) throw new Error(`Unknown agent: ${agentId}`);
+      const queued = store.createMessage({
+        kind: "thread_send",
+        fromAgentId: callerAgentId,
+        toAgentId: agentId,
+        targetThreadId: threadId,
+        text: message,
+      });
+      return Promise.resolve(response(queued));
+    },
+  );
+
+  server.registerTool(
     "agent_send",
     {
       title: "Send a related message",

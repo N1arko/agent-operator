@@ -74,6 +74,10 @@ Coordinator не управляет Codex thread и не читает локал
     "msg_123": {
       "threadId": "019bbb20-...",
       "projectId": "project_agent_operator"
+    },
+    "msg_456": {
+      "threadId": "019ccc30-...",
+      "projectId": null
     }
   },
   "activeRequestId": "msg_123",
@@ -127,6 +131,7 @@ kind
 body
 project_id
 project_name
+target_thread_id
 reply_to
 delivery_mode
 status
@@ -223,6 +228,36 @@ created_at
 thread в выбранном проекте. Занятый агент сохраняет запуск в очереди.
 `attachments` принимает до 20 Git-файлов.
 
+### `agent_threads`
+
+```json
+{
+  "agentId": "windows-codex",
+  "query": "обновление worker",
+  "limit": 10
+}
+```
+
+Создаёт mailbox-запрос к выбранному worker. Worker читает только локальную
+state DB Codex через `thread/list` с `useStateDbOnly: true`. Лимит составляет
+от 1 до 20 записей. Результат приходит через `agent_wait` и содержит краткие
+метаданные без абсолютных путей.
+
+### `agent_thread_send`
+
+```json
+{
+  "agentId": "windows-codex",
+  "threadId": "019bbb20-...",
+  "message": "Продолжи работу и верни текущий статус."
+}
+```
+
+Продолжает существующую локальную задачу по точному ID. `projectId` не
+требуется. Worker сохраняет исходный `cwd` задачи. Активная задача возвращает
+результат со статусом `failed`; отправитель повторяет запрос после её
+освобождения.
+
 ### `agent_send`
 
 ```json
@@ -311,7 +346,8 @@ turn/completed
 
 Worker хранит mapping `rootMessageId → threadId + projectId` локально.
 Coordinator получает status, активное входящее сообщение и снимок названия
-проекта.
+проекта. `projectId` имеет значение `null`, если существующая задача не
+сопоставлена опубликованному проекту.
 
 ### Новый запуск
 
@@ -333,6 +369,15 @@ Worker находит mapping и продолжает соответствующ
 2. Запускает app-server.
 3. Вызывает `thread/resume`.
 4. Продолжает очередь сообщений.
+
+### Существующая задача
+
+1. `agent_threads` выполняет bounded-поиск по state DB без обхода rollout.
+2. Worker удаляет `cwd` из результата и добавляет project descriptor при
+   локальном совпадении.
+3. `agent_thread_send` проверяет точный ID через `thread/read` без turns.
+4. Worker вызывает `thread/resume` по ID без замены `cwd`.
+5. Завершение turn возвращается обычным result-сообщением.
 
 Codex App Server поддерживает создание, возобновление, steering, interrupt,
 передачу `cwd` и поток событий. Официальное описание:

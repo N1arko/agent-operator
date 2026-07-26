@@ -1,4 +1,9 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import { unlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, it } from "node:test";
 import { CoordinatorStore } from "../src/coordinator/store.js";
 
@@ -63,5 +68,55 @@ describe("CoordinatorStore", () => {
     assert.equal(store.listMessages("windows", 0)[0]?.id, result.id);
     assert.equal(result.rootMessageId, start.id);
     assert.ok(result.cursor > start.cursor);
+  });
+
+  it("stores an exact target thread for projectless work", () => {
+    const store = createStore();
+    const message = store.createMessage({
+      kind: "thread_send",
+      fromAgentId: "mac",
+      toAgentId: "windows",
+      targetThreadId: "019f9ff2-42a3-7c43-92e9-ab1b9794e043",
+      text: "Continue this task",
+    });
+
+    assert.equal(
+      message.targetThreadId,
+      "019f9ff2-42a3-7c43-92e9-ab1b9794e043",
+    );
+    assert.equal(message.projectId, null);
+  });
+
+  it("adds the target thread column to an existing coordinator database", () => {
+    const databasePath = join(tmpdir(), `aop-store-${randomUUID()}.sqlite`);
+    const legacy = new DatabaseSync(databasePath);
+    legacy.exec(`
+      CREATE TABLE messages (
+        seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        id TEXT UNIQUE NOT NULL,
+        kind TEXT NOT NULL,
+        from_agent_id TEXT NOT NULL,
+        to_agent_id TEXT NOT NULL,
+        root_message_id TEXT NOT NULL,
+        reply_to TEXT,
+        project_id TEXT,
+        text TEXT NOT NULL,
+        attachments_json TEXT NOT NULL,
+        status TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      )
+    `);
+    legacy.close();
+
+    const store = new CoordinatorStore(databasePath);
+    const columns = store.db
+      .prepare("PRAGMA table_info(messages)")
+      .all() as Array<{ name: string }>;
+    assert.equal(
+      columns.some((column) => column.name === "target_thread_id"),
+      true,
+    );
+    store.close();
+    unlinkSync(databasePath);
   });
 });
