@@ -209,7 +209,7 @@ export class Worker {
         null,
       currentActivity: this.active?.activity ?? null,
       projects: descriptors,
-      workerVersion: "0.1.1",
+      workerVersion: "0.1.2",
     });
   }
 }

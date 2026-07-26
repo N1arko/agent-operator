@@ -10,7 +10,7 @@ services:
       AOP_HOST: 0.0.0.0
       AOP_PORT: 8787
       AOP_DATA_DIR: /data
-      AOP_WORKER_BUNDLE: /app/release/agent-operator-worker-0.1.1.zip
+      AOP_WORKER_BUNDLE: /app/release/agent-operator-worker-0.1.2.zip
     volumes:
       - ./data/db:/data
     expose:

@@ -19,6 +19,64 @@ export type TurnHandle = {
   completed: Promise<{ status: string; text: string }>;
 };
 
+const asObject = (value: unknown): JsonObject | null =>
+  typeof value === "object" && value !== null ? (value as JsonObject) : null;
+
+const agentMessageText = (items: JsonObject[]): string => {
+  const messages = items.filter(
+    (item) => item.type === "agentMessage" && typeof item.text === "string",
+  );
+  const finalMessages = messages.filter(
+    (item) => item.phase === "final_answer",
+  );
+  const unclassifiedMessages = messages.filter(
+    (item) => item.phase === undefined || item.phase === null,
+  );
+  const selected =
+    finalMessages.length > 0
+      ? finalMessages
+      : unclassifiedMessages.length > 0
+        ? unclassifiedMessages
+        : messages;
+  return selected.map((item) => String(item.text)).join("\n");
+};
+
+export const extractCompletedTurnText = (
+  completedTurn: JsonObject,
+  notifications: JsonObject[],
+  threadId: string,
+  turnId: string,
+): string => {
+  const items = new Map<string, JsonObject>();
+  let anonymousIndex = 0;
+  const addItem = (value: unknown): void => {
+    const item = asObject(value);
+    if (!item) return;
+    const key =
+      typeof item.id === "string" ? item.id : `anonymous-${anonymousIndex++}`;
+    items.set(key, item);
+  };
+
+  for (const notification of notifications) {
+    if (notification.method !== "item/completed") continue;
+    const params = asObject(notification.params);
+    if (
+      !params ||
+      params.threadId !== threadId ||
+      params.turnId !== turnId
+    ) {
+      continue;
+    }
+    addItem(params.item);
+  }
+
+  if (Array.isArray(completedTurn.items)) {
+    for (const item of completedTurn.items) addItem(item);
+  }
+
+  return agentMessageText([...items.values()]);
+};
+
 const textInput = (text: string): JsonObject => ({
   type: "text",
   text,
@@ -112,11 +170,12 @@ export class CodexAppServer {
       24 * 60 * 60 * 1000,
     ).then((event) => {
       const completedTurn = (event.params as JsonObject).turn as JsonObject;
-      const items = completedTurn.items as JsonObject[];
-      const text = items
-        .filter((item) => item.type === "agentMessage")
-        .map((item) => String(item.text))
-        .join("\n");
+      const text = extractCompletedTurnText(
+        completedTurn,
+        this.notifications,
+        threadId,
+        turnId,
+      );
       this.scheduleIdleStop();
       return { status: String(completedTurn.status), text };
     });
@@ -125,8 +184,11 @@ export class CodexAppServer {
 
   private async ensureStarted(): Promise<void> {
     if (this.child?.exitCode === null) return;
+    const env = { ...process.env };
+    delete env.AOP_DEVICE_TOKEN;
     this.child = spawn(this.codexBin, [...this.codexArgs, "app-server"], {
       stdio: ["pipe", "pipe", "pipe"],
+      env,
     });
     const child = this.child;
     const lines = createInterface({ input: child.stdout });
@@ -151,7 +213,7 @@ export class CodexAppServer {
       clientInfo: {
         name: "agent-operator-worker",
         title: "Agent Operator worker",
-        version: "0.1.1",
+        version: "0.1.2",
       },
       capabilities: {
         experimentalApi: true,

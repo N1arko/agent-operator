@@ -283,8 +283,10 @@ agent_start queued
 ### Завершение
 
 ```text
+item/completed(agentMessage)
+  → worker сохраняет финальный текст
 turn/completed
-  → worker извлекает финальное сообщение
+  → worker выбирает final_answer для завершённого turn
   → создаёт result
   → result.replyTo = activeRequestId
   → status = idle

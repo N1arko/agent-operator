@@ -14,6 +14,6 @@ ENV NODE_ENV=production
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/package.json ./
-COPY release/agent-operator-worker-0.1.1.zip ./release/agent-operator-worker-0.1.1.zip
+COPY release/agent-operator-worker-0.1.2.zip ./release/agent-operator-worker-0.1.2.zip
 USER node
 CMD ["node", "dist/src/coordinator/main.js"]

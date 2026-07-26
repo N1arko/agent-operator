@@ -87,7 +87,7 @@ Coordinator должен сохранять один активный проце
 │   ├── backups/
 │   ├── compose.yaml
 │   └── Caddyfile
-└── release/agent-operator-worker-0.1.1.zip
+└── release/agent-operator-worker-0.1.2.zip
 ```
 
 ## 6. Контейнеры

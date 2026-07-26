@@ -22,7 +22,8 @@ Worker управляет `codex app-server` по JSONL поверх STDIO:
   перезапуска app-server;
 - `thread/status/changed`, `turn/started`, `item/started` и `turn/completed`
   служат источником состояния;
-- итоговый текст извлекается из `agentMessage` завершённого turn.
+- итоговый текст извлекается из `agentMessage` завершённого turn. Актуальная
+  обработка отдельных событий `item/completed` зафиксирована в ADR-0003.
 
 Worker хранит соответствие `rootMessageId → threadId + projectId`. app-server
 запускается лениво и завершается после периода бездействия.

@@ -18,11 +18,13 @@ if ($nodeMajor -lt 24) {
 }
 Push-Location $PSScriptRoot
 try {
+  if ($UseNpmCodex) {
+    npm pkg set "dependencies.@openai/codex=0.145.0"
+  }
   npm install --omit=dev --ignore-scripts
   $codexBin = "codex"
   $codexArgsJson = "[]"
   if ($UseNpmCodex) {
-    npm install --no-save --ignore-scripts @openai/codex@0.145.0
     $codexScript = Join-Path $PSScriptRoot "node_modules\@openai\codex\bin\codex.js"
     if (-not (Test-Path $codexScript)) {
       throw "npm Codex entrypoint was not installed: $codexScript"

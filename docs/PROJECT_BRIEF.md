@@ -192,8 +192,9 @@ agent_start получен
   → worker создаёт свежий thread
   → app-server сообщает turn/started
   → worker публикует busy
+  → app-server сообщает item/completed с финальным agentMessage
   → app-server сообщает turn/completed
-  → worker берёт финальное сообщение
+  → worker выбирает финальное сообщение завершённого turn
   → coordinator получает result с replyTo=requestMessageId
   → автор запроса получает результат
 ```

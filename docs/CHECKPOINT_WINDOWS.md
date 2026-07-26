@@ -24,12 +24,16 @@ checkpoint начинается реальный end-to-end сценарий Mac
 
 При невыполненном условии checkpoint остаётся ожидающим.
 
-**Текущий статус 2026-07-26:** Windows-worker подключён и публикует heartbeat,
-статус `idle` и один доступный проект. Первый `agent_start` дошёл до worker и
-остановился при чтении конфигурации `codex-cli 0.114.0`: значение
-`service_tier = "default"` отсутствует в наборе вариантов этой версии.
-Worker `0.1.1` запускает закреплённый npm Codex `0.145.0` через Node.js и готов
-к повторной установке.
+**Текущий статус 2026-07-26:** Windows-worker `0.1.1` подключён и публикует
+heartbeat, статус `idle` и один доступный проект. Закреплённый npm Codex
+`0.145.0` через Node.js успешно создал и завершил свежий thread. Coordinator
+получил `completed` с пустым текстом, поскольку итоговое `agentMessage` этой
+версии пришло через отдельное событие `item/completed`.
+
+Worker `0.1.2` собирает финальные сообщения из `item/completed`, поддерживает
+прежнюю форму `turn/completed`, удаляет device token из окружения app-server и
+регистрирует npm Codex как production-зависимость для полного аудита. Bundle
+опубликован на coordinator и готов к контрольному обновлению Windows.
 
 ## 3. Что требуется от пользователя
 
@@ -66,17 +70,17 @@ Device token не вставляется в prompt, Git, логи или отч�
 ## 5. Актуальная задача для Windows Codex
 
 ```text
-Ты работаешь на Windows-ноутбуке. Подключи локальный Agent Operator worker к
-работающему coordinator. Выполни задачу самостоятельно и остановись, если
-потребуется выбор пользователя или безопасный ввод секрета.
+Ты работаешь на Windows-ноутбуке. Обнови уже подключённый Agent Operator worker
+с версии 0.1.1 до 0.1.2. Выполни задачу самостоятельно и остановись, если
+обнаружишь несовпадение процессов, путей или конфигурации.
 
 Цель:
-- установить worker версии 0.1.1;
+- установить worker версии 0.1.2;
 - подключить его к
   https://agent-operator.188-241-197-83.sslip.io;
 - зарегистрировать agentId `windows` с именем `Windows Codex`;
 - опубликовать доступные локальные Codex-проекты;
-- пройти диагностику и вернуть отчёт.
+- пройти диагностику, запустить worker и вернуть отчёт.
 
 Контекст:
 - health:
@@ -84,33 +88,35 @@ Device token не вставляется в prompt, Git, логи или отч�
 - package:
   https://agent-operator.188-241-197-83.sslip.io/v1/onboarding/worker.zip
 - install directory:
+  `$env:LOCALAPPDATA\AgentOperator\0.1.2`
+- previous install:
   `$env:LOCALAPPDATA\AgentOperator\0.1.1`
 - package содержит `install-worker.ps1`, `diagnose.ps1` и `run-worker.ps1`;
-- device token уже создан на coordinator. Запроси его у пользователя через
-  скрытый локальный ввод. Не включай token в сообщение, командный вывод или
-  отчёт.
+- действующие параметры и device token находятся в `worker.env` предыдущей
+  установки. Загрузи их только в окружение текущего PowerShell-процесса через
+  `load-env.ps1`. Не включай token в команды, вывод или отчёт.
 
 Правила:
-1. Проверь Windows, архитектуру, `node --version` и `codex --version`.
-   Требуется Node.js 24 или новее.
-2. Сохрани проекты на месте. Для первоначальной проверки выбери текущий
-   открытый в Codex проект. Если текущий проект не определён, покажи
-   пользователю короткий список вероятных папок и попроси выбрать одну.
-3. Создай `$env:LOCALAPPDATA\AgentOperator\projects.json`. Для каждого проекта
-   сгенерируй случайный стабильный ID через `[guid]::NewGuid()`, запиши
-   отображаемое имя, абсолютный локальный path и tags. Эти ID сохраняются при
-   дальнейшем переименовании или переносе папки.
-4. Получи token через:
-   `$SecureToken = Read-Host "Device token" -AsSecureString`.
-   Преобразуй его в обычную строку только в памяти текущего PowerShell-процесса.
-5. Скачай package с заголовком
+1. Проверь Windows, архитектуру и `node --version`. Требуется Node.js 24 или
+   новее.
+2. Найди только процессы worker из каталога версии 0.1.1 и проверь их
+   CommandLine. Не останавливай другие процессы Node.js, PowerShell или Codex.
+3. Загрузи предыдущий `worker.env` через
+   `$env:LOCALAPPDATA\AgentOperator\0.1.1\load-env.ps1`. Сохрани значения
+   coordinator URL, agent ID, agent name, projects file и device token только
+   в переменных текущего процесса, включая
+   `$DeviceToken = $env:AOP_DEVICE_TOKEN`.
+4. Скачай package с заголовком
    `Authorization: Bearer <token>` через `Invoke-WebRequest`, распакуй в
-   install directory.
-6. Запусти:
+   новый install directory.
+5. Останови только проверенные процессы worker 0.1.1.
+6. В каталоге 0.1.2 запусти:
    `.\install-worker.ps1 -CoordinatorUrl "https://agent-operator.188-241-197-83.sslip.io" -AgentId "windows" -AgentName "Windows Codex" -DeviceToken $DeviceToken -ProjectsFile "$env:LOCALAPPDATA\AgentOperator\projects.json" -UseNpmCodex`.
 7. Удали переменные с token из текущего PowerShell-сеанса.
-8. Проверь `.\diagnose.ps1`. Успешная диагностика должна показать HTTPS 200,
-   `authenticated: true`, доступный Codex и хотя бы один доступный проект.
+8. Проверь `.\diagnose.ps1` и `npm audit --omit=dev`. Успешная диагностика
+   должна показать HTTPS 200, `authenticated: true`, Codex `0.145.0`,
+   `argsCount: 1` и хотя бы один доступный проект. Аудит должен учитывать
+   `@openai/codex` как обычную dependency и завершиться без уязвимостей.
 9. Запусти worker отдельным локальным процессом через `.\run-worker.ps1`.
    Автозапуск в этом checkpoint не настраивай.
 10. Сообщи пользователю, что worker запущен, и дождись проверки с Mac.
@@ -125,13 +131,14 @@ Device token не вставляется в prompt, Git, логи или отч�
 - секреты отсутствуют в выводе.
 
 Верни:
-- версию worker `0.1.1`;
+- версию worker `0.1.2`;
 - Windows version и architecture;
 - Codex и Node.js versions;
 - статус coordinator connection и `authenticated`;
 - agentId и количество опубликованных проектов;
 - путь к install directory и projects config;
 - статус worker process;
+- результат `npm audit --omit=dev` и статус `@openai/codex`;
 - предупреждения и необходимые ручные действия.
 ```
 

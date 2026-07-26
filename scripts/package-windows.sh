@@ -3,7 +3,7 @@ set -eu
 
 root_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 stage_dir="$root_dir/work/windows-package"
-archive="$root_dir/release/agent-operator-worker-0.1.1.zip"
+archive="$root_dir/release/agent-operator-worker-0.1.2.zip"
 
 rm -rf "$stage_dir"
 mkdir -p "$stage_dir/dist" "$stage_dir/scripts" "$root_dir/release"
