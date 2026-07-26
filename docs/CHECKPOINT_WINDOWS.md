@@ -24,16 +24,25 @@ checkpoint начинается реальный end-to-end сценарий Mac
 
 При невыполненном условии checkpoint остаётся ожидающим.
 
-**Текущий статус 2026-07-26:** Windows-worker `0.1.1` подключён и публикует
-heartbeat, статус `idle` и один доступный проект. Закреплённый npm Codex
-`0.145.0` через Node.js успешно создал и завершил свежий thread. Coordinator
-получил `completed` с пустым текстом, поскольку итоговое `agentMessage` этой
-версии пришло через отдельное событие `item/completed`.
+**Текущий статус 2026-07-26:** Windows-worker `0.1.2` установлен, прошёл
+диагностику и отправлял heartbeat до `20:47:58Z`. Coordinator наблюдал агента
+как `idle` и сохранил доступный проект. Windows-ноутбук отключился после
+разрядки аккумулятора. Автозапуск в checkpoint не настраивался, поэтому после
+включения worker потребуется запустить вручную.
 
-Worker `0.1.2` собирает финальные сообщения из `item/completed`, поддерживает
-прежнюю форму `turn/completed`, удаляет device token из окружения app-server и
-регистрирует npm Codex как production-зависимость для полного аудита. Bundle
-опубликован на coordinator и готов к контрольному обновлению Windows.
+До обновления worker `0.1.1` успешно создал и завершил свежий thread, однако
+вернул пустой текст. Worker `0.1.2` собирает финальные сообщения из
+`item/completed`, поддерживает прежнюю форму `turn/completed`, удаляет device
+token из окружения app-server и регистрирует npm Codex как
+production-зависимость для полного аудита. Остался контрольный ответ `ready`
+через `agent_start → agent_wait`.
+
+Во время начальной проверки обновления SHA-256 файла
+`C:\Users\nikit\.codex\config.toml` изменился с префикса `750EA` на `273E`.
+Файл был создан заново за 42 секунды до создания каталога worker `0.1.2`.
+Во время распаковки, установки и запуска 0.1.2 его время изменения оставалось
+стабильным. Источник более раннего параллельного изменения не установлен;
+восстановление без исходной копии не выполнялось.
 
 ## 3. Что требуется от пользователя
 
@@ -70,76 +79,23 @@ Device token не вставляется в prompt, Git, логи или отч�
 ## 5. Актуальная задача для Windows Codex
 
 ```text
-Ты работаешь на Windows-ноутбуке. Обнови уже подключённый Agent Operator worker
-с версии 0.1.1 до 0.1.2. Выполни задачу самостоятельно и остановись, если
-обнаружишь несовпадение процессов, путей или конфигурации.
+После включения Windows-ноутбука возобнови контрольную проверку Agent Operator
+worker `0.1.2`.
 
-Цель:
-- установить worker версии 0.1.2;
-- подключить его к
-  https://agent-operator.188-241-197-83.sslip.io;
-- зарегистрировать agentId `windows` с именем `Windows Codex`;
-- опубликовать доступные локальные Codex-проекты;
-- пройти диагностику, запустить worker и вернуть отчёт.
-
-Контекст:
-- health:
-  https://agent-operator.188-241-197-83.sslip.io/health
-- package:
-  https://agent-operator.188-241-197-83.sslip.io/v1/onboarding/worker.zip
-- install directory:
-  `$env:LOCALAPPDATA\AgentOperator\0.1.2`
-- previous install:
-  `$env:LOCALAPPDATA\AgentOperator\0.1.1`
-- package содержит `install-worker.ps1`, `diagnose.ps1` и `run-worker.ps1`;
-- действующие параметры и device token находятся в `worker.env` предыдущей
-  установки. Загрузи их только в окружение текущего PowerShell-процесса через
-  `load-env.ps1`. Не включай token в команды, вывод или отчёт.
-
-Правила:
-1. Проверь Windows, архитектуру и `node --version`. Требуется Node.js 24 или
-   новее.
-2. Найди только процессы worker из каталога версии 0.1.1 и проверь их
-   CommandLine. Не останавливай другие процессы Node.js, PowerShell или Codex.
-3. Загрузи предыдущий `worker.env` через
-   `$env:LOCALAPPDATA\AgentOperator\0.1.1\load-env.ps1`. Сохрани значения
-   coordinator URL, agent ID, agent name, projects file и device token только
-   в переменных текущего процесса, включая
-   `$DeviceToken = $env:AOP_DEVICE_TOKEN`.
-4. Скачай package с заголовком
-   `Authorization: Bearer <token>` через `Invoke-WebRequest`, распакуй в
-   новый install directory.
-5. Останови только проверенные процессы worker 0.1.1.
-6. В каталоге 0.1.2 запусти:
-   `.\install-worker.ps1 -CoordinatorUrl "https://agent-operator.188-241-197-83.sslip.io" -AgentId "windows" -AgentName "Windows Codex" -DeviceToken $DeviceToken -ProjectsFile "$env:LOCALAPPDATA\AgentOperator\projects.json" -UseNpmCodex`.
-7. Удали переменные с token из текущего PowerShell-сеанса.
-8. Проверь `.\diagnose.ps1` и `npm audit --omit=dev`. Успешная диагностика
-   должна показать HTTPS 200, `authenticated: true`, Codex `0.145.0`,
-   `argsCount: 1` и хотя бы один доступный проект. Аудит должен учитывать
-   `@openai/codex` как обычную dependency и завершиться без уязвимостей.
-9. Запусти worker отдельным локальным процессом через `.\run-worker.ps1`.
-   Автозапуск в этом checkpoint не настраивай.
-10. Сообщи пользователю, что worker запущен, и дождись проверки с Mac.
-11. При ошибке авторизации, недоступном пути или несовместимой версии остановись
-    и верни точный безопасный текст ошибки.
-
-Успешный результат:
-- worker подключён;
-- агент виден как idle;
-- agent_projects возвращает проекты;
-- тестовый agent_start может быть принят;
-- секреты отсутствуют в выводе.
-
-Верни:
-- версию worker `0.1.2`;
-- Windows version и architecture;
-- Codex и Node.js versions;
-- статус coordinator connection и `authenticated`;
-- agentId и количество опубликованных проектов;
-- путь к install directory и projects config;
-- статус worker process;
-- результат `npm audit --omit=dev` и статус `@openai/codex`;
-- предупреждения и необходимые ручные действия.
+1. Проверь наличие каталога
+   `C:\Users\nikit\AppData\Local\AgentOperator\0.1.2`.
+2. Вычисли SHA-256 `C:\Users\nikit\.codex\config.toml`, если файл существует.
+   Не выводи содержимое файла.
+3. Запусти `diagnose.ps1` из каталога 0.1.2.
+4. Запусти worker отдельным процессом через `run-worker.ps1`.
+5. Убедись, что heartbeat обновляется и агент `windows` находится в состоянии
+   `idle`.
+6. Автозапуск пока не настраивай. Переустановка и повторный ввод device token
+   не требуются.
+7. Сообщи основной задаче, что worker готов к контрольному
+   `agent_start → agent_wait`.
+8. После удалённого теста повторно вычисли SHA-256 `config.toml` и сообщи,
+   изменился ли он. Содержимое и секреты в отчёт не включай.
 ```
 
 Device token хранится на основном Mac в исключённом из Git файле
