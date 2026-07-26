@@ -165,6 +165,8 @@ Coordinator доступен внутри Docker network на `8787`. В инт�
 - Windows bundle отдаётся только с device token;
 - удалённый тест через VPS запустил реальный Codex turn на Mac и получил
   `REMOTE_E2E_OK`;
+- удалённый тест Mac → VPS → Windows → VPS → Mac получил итоговый текст
+  `ready` после восстановления Windows-worker;
 - SQLite сохраняется в bind mount при пересоздании container.
 
 ## 11. Готовность
