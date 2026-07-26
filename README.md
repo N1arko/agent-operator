@@ -52,4 +52,5 @@ MVP версии `0.1.2` прошёл `CP-WIN-01`:
 Версия `0.1.3` добавляет проверяемые Git-вложения для `agent_start` и
 `agent_send`. Вложение содержит repository, commit hash, относительный path и
 SHA-256. Worker проверяет файл в локальном проекте и передаёт Codex manifest
-для чтения через `git show` без checkout.
+для чтения через `git show` без checkout. Coordinator и Mac-worker уже работают
+на `0.1.3`; Windows bundle опубликован для симметричного E2E Mac → Windows.

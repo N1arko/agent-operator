@@ -10,11 +10,12 @@
 
 ## В работе
 
-### AOP-050 — Реализовать `git_file` attachment
+### AOP-070 — Передать Git-файл Mac → Windows
 
-Добавить в протокол Git-вложение со ссылкой на repository, revision,
-относительный path и SHA-256. Worker-получатель должен разрешать вложение
-локально в рамках выбранного проекта.
+Coordinator и Mac-worker обновлены до `0.1.3`. Реальный E2E от identity
+Windows к Mac проверил repository, commit, path и SHA-256 и получил содержимое
+committed-файла без изменения ветки. Требуется обновить Windows-worker до
+`0.1.3` и повторить сценарий в направлении Mac → Windows.
 
 ## Контрольные точки
 
@@ -104,7 +105,6 @@
 
 ### Передача файлов
 
-- [ ] **AOP-051:** Проверять repository, revision, path и checksum.
 - [ ] **AOP-052:** Добавить upload временного файла.
 - [ ] **AOP-053:** Добавить download во временную локальную папку.
 - [ ] **AOP-054:** Проверять size и SHA-256.
@@ -124,7 +124,6 @@
 - [x] **AOP-067:** Продолжить завершённый thread через `replyTo`.
 - [x] **AOP-068:** Получить автоматический result.
 - [x] **AOP-069:** Дождаться результата через cursor.
-- [ ] **AOP-070:** Передать Git-файл.
 - [ ] **AOP-071:** Передать временный файл.
 - [x] **AOP-072:** Проверить restart и resume.
 
@@ -180,6 +179,10 @@
 - [x] **AOP-089:** Проверена связь двух Codex с разными аккаунтами.
 - [x] **AOP-090:** Удалённый end-to-end тест Mac → VPS → Windows → VPS → Mac
   завершён успешно.
+- [x] **AOP-050:** Реализован `git_file` attachment для `agent_start` и
+  `agent_send`.
+- [x] **AOP-051:** Worker проверяет repository, commit, path и SHA-256,
+  выполняет fetch при необходимости и сохраняет working tree.
 
 ## Definition of Done
 
