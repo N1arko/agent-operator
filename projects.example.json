@@ -1,0 +1,10 @@
+{
+  "projects": [
+    {
+      "id": "agent-operator",
+      "name": "Agent Operator",
+      "path": "/absolute/local/path/to/agent-operator",
+      "tags": ["code"]
+    }
+  ]
+}

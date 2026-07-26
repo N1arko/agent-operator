@@ -1,0 +1,13 @@
+.git
+.DS_Store
+node_modules
+coverage
+data
+deploy/data
+deploy/backups
+work
+.env
+.env.*
+!deploy/.env.example
+release/*
+!release/agent-operator-worker-0.1.0.zip

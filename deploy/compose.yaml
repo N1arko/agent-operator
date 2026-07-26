@@ -1,0 +1,45 @@
+services:
+  coordinator:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      AOP_HOST: 0.0.0.0
+      AOP_PORT: 8787
+      AOP_DATA_DIR: /data
+      AOP_WORKER_BUNDLE: /app/release/agent-operator-worker-0.1.0.zip
+    volumes:
+      - ./data/db:/data
+    expose:
+      - "8787"
+    mem_limit: 512m
+    cpus: 0.75
+    networks:
+      - agent-operator
+
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    depends_on:
+      - coordinator
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    mem_limit: 160m
+    cpus: 0.25
+    networks:
+      - agent-operator
+
+networks:
+  agent-operator:
+
+volumes:
+  caddy_data:
+  caddy_config:
