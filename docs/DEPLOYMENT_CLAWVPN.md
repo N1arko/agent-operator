@@ -176,6 +176,11 @@ Coordinator доступен внутри Docker network на `8787`. В инт�
   `threadId`;
 - живой Windows E2E получил 20 кратких записей, нашёл существующую задачу по
   ID и продолжил её с результатом `WINDOWS_THREAD_ATTACH_OK`;
+- через существующую Windows-задачу опубликован проект `GitHub Profile`;
+- реальный `git_file` E2E Mac → Windows проверил repository, commit, path и
+  SHA-256, после чего Windows прочитал строку `## Hi, I'm Nikita`;
+- постпроверка Windows-проекта подтвердила исходный `HEAD` и пустой
+  `git status --porcelain`;
 - SQLite сохраняется в bind mount при пересоздании container.
 
 ## 11. Готовность
