@@ -66,3 +66,7 @@ MVP прошёл `CP-WIN-01` на реальном Windows-worker:
 Живой Windows E2E подтвердил доставку и выполнение headless turn. Открытая
 задача ChatGPT Desktop не получила его события. Desktop-native выполнение
 остаётся текущей карточкой AOP-073.
+
+Подключение Agent Operator как MCP и routing skill к обычным чатам Mac и
+Windows ведётся в AOP-074. До её завершения инженерные E2E используют отдельный
+MCP-клиент из репозитория.
