@@ -190,6 +190,8 @@ Coordinator доступен внутри Docker network на `8787`. В инт�
 - визуальная проверка существующего thread выявила, что открытый ChatGPT
   Desktop не получает prompt и result отдельного app-server. Desktop E2E
   остаётся незавершённым;
+- после полного перезапуска Windows-приложения внешний prompt и result
+  появились в исходном thread; сохранение общей истории подтверждено;
 - SQLite сохраняется в bind mount при пересоздании container.
 
 ## 11. Готовность

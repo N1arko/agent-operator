@@ -54,5 +54,9 @@ ChatGPT Desktop и worker используют отдельные процесс
 активирует локальную задачу и не передаёт Desktop поток событий другого
 app-server. Решение не обеспечивает наблюдаемое выполнение в приложении.
 
+После полного перезапуска ChatGPT Desktop внешний prompt и result появились в
+той же задаче. Rollout сохраняется в общей локальной истории, а запущенный
+Desktop app-server держит устаревшее представление thread в памяти.
+
 Официальный формат deep link:
 <https://learn.chatgpt.com/docs/reference/commands#deep-links>.
