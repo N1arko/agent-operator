@@ -1,4 +1,4 @@
-import { resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { access, readFile } from "node:fs/promises";
 import { requiredEnv } from "../shared/env.js";
@@ -22,6 +22,10 @@ const token = requiredEnv("AOP_DEVICE_TOKEN");
 const client = new CoordinatorClient(coordinatorUrl, token);
 const projectsFile = resolve(process.env.AOP_PROJECTS_FILE ?? "./projects.json");
 const stateFile = resolve(process.env.AOP_STATE_FILE ?? "./data/worker-state.json");
+const temporaryDirectory = resolve(
+  process.env.AOP_TEMPORARY_DIR ??
+    join(dirname(stateFile), "temporary-files"),
+);
 const codexBin = process.env.AOP_CODEX_BIN ?? "codex";
 const codexArgs = z
   .array(z.string())
@@ -60,7 +64,7 @@ if (process.argv[2] === "diagnose") {
       currentProjectId: null,
       currentActivity: null,
       projects,
-      workerVersion: "0.1.6",
+      workerVersion: "0.1.7",
     });
     authenticated = true;
   }
@@ -99,6 +103,7 @@ if (process.argv[2] === "diagnose") {
     platform,
     projectsFile,
     stateFile,
+    temporaryDirectory,
     client,
     appServer: new CodexAppServer(
       codexBin,

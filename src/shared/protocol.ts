@@ -63,11 +63,26 @@ export type GitFileAttachment = z.infer<typeof GitFileAttachmentSchema>;
 export const TemporaryFileAttachmentSchema = z.object({
   type: z.literal("temporary_file"),
   fileId: z.uuid(),
-  name: z.string().min(1),
+  name: z
+    .string()
+    .min(1)
+    .max(255)
+    .refine(
+      (value) =>
+        !value.includes("/") &&
+        !value.includes("\\") &&
+        value !== "." &&
+        value !== ".." &&
+        !hasControlCharacter(value),
+      "Unsafe temporary file name",
+    ),
   size: z.number().int().nonnegative(),
   sha256: z.string().regex(/^[a-f0-9]{64}$/),
-  expiresAt: z.string(),
+  expiresAt: z.iso.datetime(),
 });
+export type TemporaryFileAttachment = z.infer<
+  typeof TemporaryFileAttachmentSchema
+>;
 
 export const AttachmentSchema = z.discriminatedUnion("type", [
   GitFileAttachmentSchema,

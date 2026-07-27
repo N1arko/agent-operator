@@ -9,6 +9,7 @@ import type {
   Message,
   MessageKind,
   ProjectDescriptor,
+  TemporaryFileAttachment,
 } from "../shared/protocol.js";
 
 type MessageRow = {
@@ -35,6 +36,32 @@ type AgentRow = {
   current_project_id: string | null;
   current_activity: string | null;
   last_seen_at: string;
+};
+
+type TemporaryFileRow = {
+  id: string;
+  owner_agent_id: string;
+  recipient_agent_id: string | null;
+  idempotency_key: string | null;
+  name: string;
+  path: string;
+  size: number;
+  sha256: string;
+  expires_at: string;
+  created_at: string;
+};
+
+export type TemporaryFileRecord = {
+  id: string;
+  ownerAgentId: string;
+  recipientAgentId: string;
+  idempotencyKey: string;
+  name: string;
+  path: string;
+  size: number;
+  sha256: string;
+  expiresAt: string;
+  createdAt: string;
 };
 
 export class CoordinatorStore {
@@ -89,6 +116,8 @@ export class CoordinatorStore {
       CREATE TABLE IF NOT EXISTS temporary_files (
         id TEXT PRIMARY KEY,
         owner_agent_id TEXT NOT NULL,
+        recipient_agent_id TEXT NOT NULL,
+        idempotency_key TEXT NOT NULL,
         name TEXT NOT NULL,
         path TEXT NOT NULL,
         size INTEGER NOT NULL,
@@ -96,6 +125,8 @@ export class CoordinatorStore {
         expires_at TEXT NOT NULL,
         created_at TEXT NOT NULL
       );
+      CREATE INDEX IF NOT EXISTS temporary_files_expiry
+        ON temporary_files(expires_at);
     `);
     const messageColumns = this.db
       .prepare("PRAGMA table_info(messages)")
@@ -103,6 +134,33 @@ export class CoordinatorStore {
     if (!messageColumns.some((column) => column.name === "target_thread_id")) {
       this.db.exec("ALTER TABLE messages ADD COLUMN target_thread_id TEXT");
     }
+    const temporaryFileColumns = this.db
+      .prepare("PRAGMA table_info(temporary_files)")
+      .all() as Array<{ name: string }>;
+    if (
+      !temporaryFileColumns.some(
+        (column) => column.name === "recipient_agent_id",
+      )
+    ) {
+      this.db.exec(
+        "ALTER TABLE temporary_files ADD COLUMN recipient_agent_id TEXT",
+      );
+    }
+    if (
+      !temporaryFileColumns.some(
+        (column) => column.name === "idempotency_key",
+      )
+    ) {
+      this.db.exec(
+        "ALTER TABLE temporary_files ADD COLUMN idempotency_key TEXT",
+      );
+    }
+    this.db.exec(`
+      DELETE FROM temporary_files
+      WHERE recipient_agent_id IS NULL OR idempotency_key IS NULL;
+      CREATE UNIQUE INDEX IF NOT EXISTS temporary_files_idempotency
+        ON temporary_files(owner_agent_id, idempotency_key);
+    `);
     this.db.exec(`
       UPDATE messages
       SET status = CASE
@@ -318,6 +376,133 @@ export class CoordinatorStore {
       .run(failed ? "failed" : "completed", messageId);
   }
 
+  createTemporaryFile(input: {
+    id: string;
+    ownerAgentId: string;
+    recipientAgentId: string;
+    idempotencyKey: string;
+    name: string;
+    path: string;
+    size: number;
+    sha256: string;
+    expiresAt: string;
+  }): TemporaryFileRecord {
+    const createdAt = new Date().toISOString();
+    this.db
+      .prepare(
+        `INSERT INTO temporary_files (
+           id, owner_agent_id, recipient_agent_id, idempotency_key, name, path,
+           size, sha256, expires_at, created_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        input.id,
+        input.ownerAgentId,
+        input.recipientAgentId,
+        input.idempotencyKey,
+        input.name,
+        input.path,
+        input.size,
+        input.sha256,
+        input.expiresAt,
+        createdAt,
+      );
+    const created = this.getTemporaryFile(input.id);
+    if (!created) throw new Error(`Unable to create temporary file: ${input.id}`);
+    return created;
+  }
+
+  getTemporaryFile(id: string): TemporaryFileRecord | null {
+    const row = this.db
+      .prepare("SELECT * FROM temporary_files WHERE id = ?")
+      .get(id) as TemporaryFileRow | undefined;
+    return row ? this.mapTemporaryFile(row) : null;
+  }
+
+  findTemporaryFileByIdempotency(
+    ownerAgentId: string,
+    idempotencyKey: string,
+  ): TemporaryFileRecord | null {
+    const row = this.db
+      .prepare(
+        `SELECT * FROM temporary_files
+         WHERE owner_agent_id = ? AND idempotency_key = ?`,
+      )
+      .get(ownerAgentId, idempotencyKey) as TemporaryFileRow | undefined;
+    return row ? this.mapTemporaryFile(row) : null;
+  }
+
+  temporaryFileUsage(ownerAgentId: string, now: string): number {
+    const row = this.db
+      .prepare(
+        `SELECT COALESCE(SUM(size), 0) AS size
+         FROM temporary_files
+         WHERE owner_agent_id = ? AND expires_at > ?`,
+      )
+      .get(ownerAgentId, now) as { size: number };
+    return row.size;
+  }
+
+  deleteTemporaryFile(id: string): TemporaryFileRecord | null {
+    const record = this.getTemporaryFile(id);
+    if (!record) return null;
+    this.db.prepare("DELETE FROM temporary_files WHERE id = ?").run(id);
+    return record;
+  }
+
+  takeExpiredTemporaryFiles(now: string): TemporaryFileRecord[] {
+    const rows = this.db
+      .prepare("SELECT * FROM temporary_files WHERE expires_at <= ?")
+      .all(now) as unknown as TemporaryFileRow[];
+    if (rows.length === 0) return [];
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      this.db
+        .prepare("DELETE FROM temporary_files WHERE expires_at <= ?")
+        .run(now);
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+    return rows.map((row) => this.mapTemporaryFile(row));
+  }
+
+  assertTemporaryAttachments(
+    ownerAgentId: string,
+    recipientAgentId: string,
+    attachments: TemporaryFileAttachment[],
+  ): void {
+    const now = Date.now();
+    for (const attachment of attachments) {
+      const record = this.getTemporaryFile(attachment.fileId);
+      if (!record) {
+        throw new Error(`Unknown temporary file: ${attachment.fileId}`);
+      }
+      if (
+        record.ownerAgentId !== ownerAgentId ||
+        record.recipientAgentId !== recipientAgentId
+      ) {
+        throw new Error(
+          `Temporary file ${attachment.fileId} is not available for this route`,
+        );
+      }
+      if (Date.parse(record.expiresAt) <= now) {
+        throw new Error(`Temporary file ${attachment.fileId} has expired`);
+      }
+      if (
+        record.name !== attachment.name ||
+        record.size !== attachment.size ||
+        record.sha256 !== attachment.sha256 ||
+        record.expiresAt !== attachment.expiresAt
+      ) {
+        throw new Error(
+          `Temporary file metadata mismatch: ${attachment.fileId}`,
+        );
+      }
+    }
+  }
+
   close(): void {
     this.db.close();
   }
@@ -336,6 +521,24 @@ export class CoordinatorStore {
       text: row.text,
       attachments: JSON.parse(row.attachments_json) as Attachment[],
       status: row.status,
+      createdAt: row.created_at,
+    };
+  }
+
+  private mapTemporaryFile(row: TemporaryFileRow): TemporaryFileRecord {
+    if (!row.recipient_agent_id || !row.idempotency_key) {
+      throw new Error(`Temporary file metadata is incomplete: ${row.id}`);
+    }
+    return {
+      id: row.id,
+      ownerAgentId: row.owner_agent_id,
+      recipientAgentId: row.recipient_agent_id,
+      idempotencyKey: row.idempotency_key,
+      name: row.name,
+      path: row.path,
+      size: row.size,
+      sha256: row.sha256,
+      expiresAt: row.expires_at,
       createdAt: row.created_at,
     };
   }

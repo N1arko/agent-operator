@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -168,6 +168,7 @@ describe("local vertical scenario", () => {
       host: "127.0.0.1",
       tokens,
       maxWaitMs: 20,
+      temporaryFileDirectory: join(directory, "coordinator-files"),
     });
     const httpServer = app.listen(0, "127.0.0.1");
     servers.push(httpServer);
@@ -182,6 +183,7 @@ describe("local vertical scenario", () => {
       platform: "macos",
       projectsFile,
       stateFile: join(directory, "state.json"),
+      temporaryDirectory: join(directory, "worker-files"),
       client: new CoordinatorClient(baseUrl, "mac-token-secure-value"),
       appServer: fakeAppServer,
       heartbeatMs: 25,
@@ -213,6 +215,11 @@ describe("local vertical scenario", () => {
       "mac",
     );
 
+    const temporaryContent = new TextEncoder().encode("local office draft\n");
+    const temporaryAttachment = await new CoordinatorClient(
+      baseUrl,
+      "windows-token-secure",
+    ).uploadTemporaryFile("mac", "draft.docx", temporaryContent);
     const started = await client.callTool({
       name: "agent_start",
       arguments: {
@@ -227,6 +234,7 @@ describe("local vertical scenario", () => {
             path: "docs/shared.md",
             sha256: attachmentSha256,
           },
+          temporaryAttachment,
         ],
       },
     });
@@ -251,6 +259,16 @@ describe("local vertical scenario", () => {
     );
     assert.match(fakeAppServer.starts[0]?.prompt ?? "", /docs\/shared\.md/);
     assert.match(fakeAppServer.starts[0]?.prompt ?? "", /git show/);
+    assert.match(fakeAppServer.starts[0]?.prompt ?? "", /draft\.docx/);
+    assert.match(
+      fakeAppServer.starts[0]?.prompt ?? "",
+      /worker-files/,
+    );
+    assert.equal(store.getTemporaryFile(temporaryAttachment.fileId), null);
+    assert.deepEqual(
+      await readdir(join(directory, "coordinator-files")),
+      [],
+    );
     assert.match(
       fakeAppServer.starts[0]?.title ?? "",
       /^\[Agent Operator\] first$/,

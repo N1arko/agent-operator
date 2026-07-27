@@ -7,11 +7,18 @@ import {
   type GitFileAttachment,
   type Message,
   type ProjectConfig,
+  type TemporaryFileAttachment,
 } from "../shared/protocol.js";
 import type { LocalThread, TurnHandle } from "./app-server.js";
 import { CoordinatorClient } from "./client.js";
 import { appendGitFilesToPrompt, resolveGitFile } from "./git-file.js";
 import { loadState, saveState, type WorkerState } from "./state.js";
+import {
+  appendTemporaryFilesToPrompt,
+  downloadTemporaryFiles,
+  removeDownloadedTemporaryFiles,
+  type DownloadedTemporaryFile,
+} from "./temporary-file.js";
 
 type WorkItem = {
   message: Message;
@@ -33,6 +40,7 @@ export type WorkerOptions = {
   platform: "macos" | "windows" | "linux" | "unknown";
   projectsFile: string;
   stateFile: string;
+  temporaryDirectory: string;
   client: CoordinatorClient;
   appServer: {
     startThread(
@@ -64,6 +72,10 @@ export class Worker {
   private running = false;
   private heartbeatTimer: NodeJS.Timeout | undefined;
   private stateWrite: Promise<void> = Promise.resolve();
+  private readonly temporaryFiles = new Map<
+    string,
+    DownloadedTemporaryFile[]
+  >();
 
   constructor(private readonly options: WorkerOptions) {}
 
@@ -361,6 +373,7 @@ export class Worker {
       );
       return;
     }
+    await this.releaseTemporaryFiles(item.message.id);
     await this.removePending(item.message.id);
     if (this.active?.item.message.id === item.message.id) this.active = undefined;
     await this.sendHeartbeat();
@@ -394,24 +407,63 @@ export class Worker {
     message: Message,
     project: ProjectConfig | undefined,
   ): Promise<string> {
-    const unsupported = message.attachments.find(
-      (attachment) => attachment.type !== "git_file",
+    const gitAttachments = message.attachments.filter(
+      (attachment): attachment is GitFileAttachment =>
+        attachment.type === "git_file",
     );
-    if (unsupported) {
-      throw new Error(`Unsupported attachment type: ${unsupported.type}`);
-    }
-    const attachments = message.attachments as GitFileAttachment[];
-    if (attachments.length === 0) return message.text;
-    if (!project) {
+    const temporaryAttachments = message.attachments.filter(
+      (attachment): attachment is TemporaryFileAttachment =>
+        attachment.type === "temporary_file",
+    );
+    if (gitAttachments.length > 0 && !project) {
       throw new Error(
         "Git attachments require a thread mapped to a published project",
       );
     }
-    const files = [];
-    for (const attachment of attachments) {
-      files.push(await resolveGitFile(project, attachment));
+    let prompt = message.text;
+    if (project) {
+      const files = [];
+      for (const attachment of gitAttachments) {
+        files.push(await resolveGitFile(project, attachment));
+      }
+      prompt = appendGitFilesToPrompt(prompt, files);
     }
-    return appendGitFilesToPrompt(message.text, files);
+    const temporaryFiles = await downloadTemporaryFiles(
+      this.options.client,
+      this.options.temporaryDirectory,
+      message.id,
+      temporaryAttachments,
+    );
+    this.temporaryFiles.set(message.id, temporaryFiles);
+    return appendTemporaryFilesToPrompt(prompt, temporaryFiles);
+  }
+
+  private async releaseTemporaryFiles(messageId: string): Promise<void> {
+    const files = this.temporaryFiles.get(messageId) ?? [];
+    for (const file of files) {
+      try {
+        await this.options.client.acknowledgeTemporaryFile(
+          file.attachment.fileId,
+        );
+      } catch (error) {
+        console.error(
+          `[worker] temporary file acknowledgement failed: ${file.attachment.fileId}`,
+          error,
+        );
+      }
+    }
+    try {
+      await removeDownloadedTemporaryFiles(
+        this.options.temporaryDirectory,
+        messageId,
+      );
+    } catch (error) {
+      console.error(
+        `[worker] temporary file cleanup failed: ${messageId}`,
+        error,
+      );
+    }
+    this.temporaryFiles.delete(messageId);
   }
 
   private async sendHeartbeat(): Promise<void> {
@@ -443,7 +495,7 @@ export class Worker {
         null,
       currentActivity: this.active?.activity ?? null,
       projects: descriptors,
-      workerVersion: "0.1.6",
+      workerVersion: "0.1.7",
     });
   }
 }

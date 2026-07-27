@@ -15,6 +15,7 @@ const store = new CoordinatorStore(join(dataDir, "coordinator.sqlite"));
 const app = createCoordinatorApp(store, {
   host,
   tokens,
+  temporaryFileDirectory: join(dataDir, "files"),
   ...(allowedHosts?.length ? { allowedHosts } : {}),
   ...(process.env.AOP_WORKER_BUNDLE
     ? { workerBundlePath: process.env.AOP_WORKER_BUNDLE }

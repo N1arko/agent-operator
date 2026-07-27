@@ -1,10 +1,19 @@
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js";
+import express from "express";
 import type { Express, NextFunction, Request, Response } from "express";
 import { createReadStream, existsSync } from "node:fs";
 import { HeartbeatSchema, PublishResultSchema } from "../shared/protocol.js";
 import { createMcpServer } from "./mcp.js";
 import type { CoordinatorStore } from "./store.js";
+import {
+  acknowledgeTemporaryFile,
+  cleanupExpiredTemporaryFiles,
+  createTemporaryFile,
+  DEFAULT_TEMPORARY_FILE_MAX_BYTES,
+  getTemporaryFileForDownload,
+  TemporaryFileError,
+} from "./temporary-files.js";
 
 export type CoordinatorServerOptions = {
   host: string;
@@ -12,6 +21,10 @@ export type CoordinatorServerOptions = {
   tokens: Map<string, string>;
   maxWaitMs?: number;
   workerBundlePath?: string;
+  temporaryFileDirectory?: string;
+  temporaryFileMaxBytes?: number;
+  temporaryFileQuotaBytes?: number;
+  temporaryFileTtlMs?: number;
 };
 
 const bearerToken = (request: Request): string | null => {
@@ -28,6 +41,20 @@ export const createCoordinatorApp = (
     host: options.host,
     ...(options.allowedHosts ? { allowedHosts: options.allowedHosts } : {}),
   });
+  const temporaryFileDirectory =
+    options.temporaryFileDirectory ?? "./data/files";
+  const temporaryFileMaxBytes =
+    options.temporaryFileMaxBytes ?? DEFAULT_TEMPORARY_FILE_MAX_BYTES;
+  let lastTemporaryFileCleanupAt = 0;
+
+  const maybeCleanupTemporaryFiles = (): void => {
+    const now = Date.now();
+    if (now - lastTemporaryFileCleanupAt < 60_000) return;
+    lastTemporaryFileCleanupAt = now;
+    void cleanupExpiredTemporaryFiles(store).catch((error: unknown) => {
+      console.error("[coordinator] temporary file cleanup failed", error);
+    });
+  };
 
   const authenticate = (
     request: Request,
@@ -45,7 +72,7 @@ export const createCoordinatorApp = (
   };
 
   app.get("/health", (_request, response) => {
-    response.json({ status: "ok", version: "0.1.0" });
+    response.json({ status: "ok", version: "0.1.7" });
   });
 
   app.get("/v1/onboarding/worker.zip", authenticate, (_request, response) => {
@@ -57,7 +84,7 @@ export const createCoordinatorApp = (
     response.type("application/zip");
     response.setHeader(
       "content-disposition",
-      'attachment; filename="agent-operator-worker-0.1.6.zip"',
+      'attachment; filename="agent-operator-worker-0.1.7.zip"',
     );
     createReadStream(path).pipe(response);
   });
@@ -65,6 +92,7 @@ export const createCoordinatorApp = (
   app.post("/v1/worker/heartbeat", authenticate, (request, response) => {
     const heartbeat = HeartbeatSchema.parse(request.body);
     store.heartbeat(String(response.locals.agentId), heartbeat);
+    maybeCleanupTemporaryFiles();
     response.json({ ok: true, serverTime: new Date().toISOString() });
   });
 
@@ -124,6 +152,115 @@ export const createCoordinatorApp = (
     response.status(201).json(result);
   });
 
+  app.post(
+    "/v1/files",
+    authenticate,
+    express.raw({
+      type: "application/octet-stream",
+      limit: temporaryFileMaxBytes,
+    }),
+    async (request, response) => {
+      try {
+        await cleanupExpiredTemporaryFiles(store);
+        const recipientAgentId = request.header(
+          "x-agent-operator-recipient",
+        );
+        const encodedName = request.header("x-agent-operator-name");
+        const idempotencyKey = request.header(
+          "x-agent-operator-idempotency-key",
+        );
+        if (!recipientAgentId || !encodedName || !idempotencyKey) {
+          response.status(400).json({ error: "missing file metadata" });
+          return;
+        }
+        if (idempotencyKey.length > 200) {
+          response.status(400).json({ error: "invalid idempotency key" });
+          return;
+        }
+        if (!Buffer.isBuffer(request.body)) {
+          response.status(400).json({ error: "binary body is required" });
+          return;
+        }
+        let name: string;
+        try {
+          name = decodeURIComponent(encodedName);
+        } catch {
+          throw new TemporaryFileError("invalid file name encoding", 400);
+        }
+        const attachment = await createTemporaryFile({
+          store,
+          directory: temporaryFileDirectory,
+          ownerAgentId: String(response.locals.agentId),
+          recipientAgentId,
+          idempotencyKey,
+          name,
+          content: request.body,
+          maxBytes: temporaryFileMaxBytes,
+          quotaBytes: options.temporaryFileQuotaBytes,
+          ttlMs: options.temporaryFileTtlMs,
+        });
+        response.status(201).json(attachment);
+      } catch (error) {
+        const status = error instanceof TemporaryFileError ? error.status : 500;
+        response.status(status).json({
+          error: error instanceof Error ? error.message : "file upload failed",
+        });
+      }
+    },
+  );
+
+  app.get(
+    "/v1/files/:fileId",
+    authenticate,
+    async (request, response) => {
+      try {
+        await cleanupExpiredTemporaryFiles(store);
+        const record = getTemporaryFileForDownload(
+          store,
+          String(request.params.fileId),
+          String(response.locals.agentId),
+        );
+        response.type("application/octet-stream");
+        response.setHeader("content-length", String(record.size));
+        response.setHeader("x-agent-operator-sha256", record.sha256);
+        response.setHeader("x-agent-operator-expires-at", record.expiresAt);
+        response.setHeader(
+          "content-disposition",
+          `attachment; filename*=UTF-8''${encodeURIComponent(record.name)}`,
+        );
+        createReadStream(record.path).pipe(response);
+      } catch (error) {
+        const status = error instanceof TemporaryFileError ? error.status : 500;
+        response.status(status).json({
+          error: error instanceof Error ? error.message : "file download failed",
+        });
+      }
+    },
+  );
+
+  app.post(
+    "/v1/files/:fileId/ack",
+    authenticate,
+    async (request, response) => {
+      try {
+        await acknowledgeTemporaryFile(
+          store,
+          String(request.params.fileId),
+          String(response.locals.agentId),
+        );
+        response.json({ ok: true });
+      } catch (error) {
+        const status = error instanceof TemporaryFileError ? error.status : 500;
+        response.status(status).json({
+          error:
+            error instanceof Error
+              ? error.message
+              : "file acknowledgement failed",
+        });
+      }
+    },
+  );
+
   app.post("/mcp", authenticate, async (request, response) => {
     const server = createMcpServer(store, String(response.locals.agentId));
     const transport = new StreamableHTTPServerTransport({
@@ -158,6 +295,28 @@ export const createCoordinatorApp = (
       id: null,
     });
   });
+
+  app.use(
+    (
+      error: unknown,
+      _request: Request,
+      response: Response,
+      next: NextFunction,
+    ) => {
+      if (
+        typeof error === "object" &&
+        error !== null &&
+        "type" in error &&
+        error.type === "entity.too.large"
+      ) {
+        response.status(413).json({
+          error: `Temporary file exceeds ${temporaryFileMaxBytes} bytes`,
+        });
+        return;
+      }
+      next(error);
+    },
+  );
 
   return app;
 };

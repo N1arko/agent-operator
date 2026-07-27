@@ -1,6 +1,10 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod/v4";
-import { GitFileAttachmentSchema } from "../shared/protocol.js";
+import {
+  AttachmentSchema,
+  type Attachment,
+  type TemporaryFileAttachment,
+} from "../shared/protocol.js";
 import type { CoordinatorStore } from "./store.js";
 
 const MAX_OUTSTANDING_REQUESTS = 3;
@@ -40,13 +44,30 @@ const ensureQueueCapacity = (
   }
 };
 
+const validateTemporaryAttachments = (
+  store: CoordinatorStore,
+  callerAgentId: string,
+  recipientAgentId: string,
+  attachments: Attachment[],
+): void => {
+  const temporaryAttachments = attachments.filter(
+    (attachment): attachment is TemporaryFileAttachment =>
+      attachment.type === "temporary_file",
+  );
+  store.assertTemporaryAttachments(
+    callerAgentId,
+    recipientAgentId,
+    temporaryAttachments,
+  );
+};
+
 export const createMcpServer = (
   store: CoordinatorStore,
   callerAgentId: string,
 ): McpServer => {
   const server = new McpServer({
     name: "agent-operator",
-    version: "0.1.0",
+    version: "0.1.7",
   });
 
   server.registerTool(
@@ -95,12 +116,12 @@ export const createMcpServer = (
     {
       title: "Start a task on an agent",
       description:
-        "Queue a fresh Codex task in a selected local project on another agent.",
+        "Queue a fresh Codex task in a selected local project on another agent. Attachments may reference committed Git files or temporary uploaded files.",
       inputSchema: {
         agentId: z.string().min(1),
         projectId: z.string().min(1),
         message: z.string().min(1),
-        attachments: z.array(GitFileAttachmentSchema).max(20).default([]),
+        attachments: z.array(AttachmentSchema).max(20).default([]),
       },
     },
     ({ agentId, projectId, message, attachments }) => {
@@ -110,6 +131,12 @@ export const createMcpServer = (
         .find((candidate) => candidate.id === projectId && candidate.available);
       if (!project) throw new Error(`Unavailable project: ${projectId}`);
       ensureQueueCapacity(store, agentId);
+      validateTemporaryAttachments(
+        store,
+        callerAgentId,
+        agentId,
+        attachments,
+      );
       const queued = store.createMessage({
         kind: "start",
         fromAgentId: callerAgentId,
@@ -153,22 +180,30 @@ export const createMcpServer = (
     {
       title: "Send a message to an existing task",
       description:
-        "Queue a new turn in an existing local Codex task by its exact thread ID. A published project is not required.",
+        "Queue a new turn in an existing local Codex task by its exact thread ID. A published project is not required. Temporary uploaded files may be attached.",
       inputSchema: {
         agentId: z.string().min(1),
         threadId: z.uuid(),
         message: z.string().min(1),
+        attachments: z.array(AttachmentSchema).max(20).default([]),
       },
     },
-    ({ agentId, threadId, message }) => {
+    ({ agentId, threadId, message, attachments }) => {
       if (!store.getAgent(agentId)) throw new Error(`Unknown agent: ${agentId}`);
       ensureQueueCapacity(store, agentId);
+      validateTemporaryAttachments(
+        store,
+        callerAgentId,
+        agentId,
+        attachments,
+      );
       const queued = store.createMessage({
         kind: "thread_send",
         fromAgentId: callerAgentId,
         toAgentId: agentId,
         targetThreadId: threadId,
         text: message,
+        attachments,
       });
       return Promise.resolve(response(queued));
     },
@@ -179,11 +214,11 @@ export const createMcpServer = (
     {
       title: "Send a related message",
       description:
-        "Send a clarification or follow-up to the Codex task related to a previous message.",
+        "Send a clarification or follow-up to the Codex task related to a previous message. Attachments may reference committed Git files or temporary uploaded files.",
       inputSchema: {
         replyTo: z.uuid(),
         message: z.string().min(1),
-        attachments: z.array(GitFileAttachmentSchema).max(20).default([]),
+        attachments: z.array(AttachmentSchema).max(20).default([]),
       },
     },
     ({ replyTo, message, attachments }) => {
@@ -199,6 +234,12 @@ export const createMcpServer = (
           ? previous.toAgentId
           : previous.fromAgentId;
       ensureQueueCapacity(store, toAgentId);
+      validateTemporaryAttachments(
+        store,
+        callerAgentId,
+        toAgentId,
+        attachments,
+      );
       const queued = store.createMessage({
         kind: "send",
         fromAgentId: callerAgentId,

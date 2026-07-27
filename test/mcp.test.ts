@@ -131,4 +131,55 @@ describe("Agent Operator MCP", () => {
     await client.close();
     await server.close();
   });
+
+  it("rejects temporary attachment metadata that was not uploaded for the route", async () => {
+    const store = new CoordinatorStore(":memory:");
+    stores.push(store);
+    store.heartbeat("mac", {
+      name: "Mac Codex",
+      platform: "macos",
+      state: "idle",
+      currentProjectId: null,
+      currentActivity: null,
+      projects: [
+        { id: "project-a", name: "Project A", tags: [], available: true },
+      ],
+      workerVersion: "0.1.0",
+    });
+    const server = createMcpServer(store, "windows");
+    const client = new Client({ name: "test", version: "1.0.0" });
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    await Promise.all([
+      server.connect(serverTransport),
+      client.connect(clientTransport),
+    ]);
+
+    const call = await client.callTool({
+      name: "agent_start",
+      arguments: {
+        agentId: "mac",
+        projectId: "project-a",
+        message: "Read the file",
+        attachments: [
+          {
+            type: "temporary_file",
+            fileId: "019fa0b8-1abc-73f0-8126-3f8b6d64466c",
+            name: "draft.docx",
+            size: 12,
+            sha256:
+              "c".repeat(64),
+            expiresAt: "2026-07-28T12:00:00.000Z",
+          },
+        ],
+      },
+    });
+    assert.equal(call.isError, true);
+    const content = call.content as Array<{ text: string }>;
+    assert.match(content[0]?.text ?? "", /Unknown temporary file/);
+    assert.equal(store.countOutstandingRequests("mac"), 0);
+
+    await client.close();
+    await server.close();
+  });
 });

@@ -36,6 +36,7 @@ try {
   }
   $installRoot = Split-Path -Parent $PSScriptRoot
   $stateFile = Join-Path $installRoot "data\worker-state.json"
+  $temporaryDirectory = Join-Path $installRoot "data\temporary-files"
   if (-not (Test-Path $stateFile)) {
     $previousState = Get-ChildItem -Path $installRoot -Directory |
       ForEach-Object {
@@ -60,6 +61,7 @@ try {
     "AOP_DEVICE_TOKEN=$DeviceToken"
     "AOP_PROJECTS_FILE=$ProjectsFile"
     "AOP_STATE_FILE=$stateFile"
+    "AOP_TEMPORARY_DIR=$temporaryDirectory"
     "AOP_CODEX_BIN=$codexBin"
     "AOP_CODEX_ARGS_JSON=$codexArgsJson"
   ) | Set-Content -Path $envPath -Encoding UTF8

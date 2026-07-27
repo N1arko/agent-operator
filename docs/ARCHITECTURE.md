@@ -148,9 +148,10 @@ completed_at
 ```text
 id
 owner_agent_id
-original_name
-storage_name
-content_type
+recipient_agent_id
+idempotency_key
+name
+path
 size
 sha256
 expires_at
@@ -430,25 +431,33 @@ Worker не выполняет checkout, не меняет текущую вет
 
 ## 11. Передача временного файла
 
-1. Отправляющий worker проверяет файл и размер.
-2. Вычисляет SHA-256.
-3. Загружает файл coordinator.
-4. Coordinator создаёт непрозрачный `fileId`.
-5. Получающий worker скачивает файл в свой temp directory.
-6. Worker проверяет размер и SHA-256.
-7. Codex получает локальный временный путь.
-8. После ack или TTL файл удаляется.
+1. Отправляющий локальный клиент загружает бинарное содержимое через
+   `POST /v1/files` и указывает получателя, имя и idempotency key.
+2. Coordinator проверяет размер и quota, вычисляет SHA-256 и создаёт
+   непрозрачный `fileId`.
+3. MCP проверяет владельца, получателя и точное совпадение метаданных перед
+   созданием сообщения.
+4. Получающий worker скачивает файл через `GET /v1/files/:fileId` в каталог,
+   привязанный к `messageId` и `fileId`.
+5. Worker проверяет срок действия, размер и SHA-256.
+6. Codex получает абсолютный локальный временный путь в manifest prompt.
+7. После публикации результата worker вызывает
+   `POST /v1/files/:fileId/ack` и удаляет локальную копию.
+8. Просроченные файлы очищаются во время файловых операций и на heartbeat.
 
 Coordinator принимает файлы только через явную операцию отправителя.
 
-Начальные ограничения задаются конфигурацией:
+Начальные ограничения:
 
 ```text
-maximum file size
-allowed content types
-retention period
-per-agent quota
+maximum file size: 10 MiB
+retention period: 24 hours
+per-agent quota: 50 MiB
+attachments per message: 20
 ```
+
+Подробное решение зафиксировано в
+[`ADR-0009`](adr/0009-temporary-file-lifecycle.md).
 
 ## 12. Жизненный цикл app-server
 

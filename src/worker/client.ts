@@ -2,10 +2,13 @@ import {
   HeartbeatSchema,
   MessageSchema,
   PublishResultSchema,
+  TemporaryFileAttachmentSchema,
   type Heartbeat,
   type Message,
+  type TemporaryFileAttachment,
 } from "../shared/protocol.js";
 import * as z from "zod/v4";
+import { randomUUID } from "node:crypto";
 
 const InboxSchema = z.object({
   messages: z.array(MessageSchema),
@@ -58,13 +61,46 @@ export class CoordinatorClient {
     });
   }
 
+  async uploadTemporaryFile(
+    recipientAgentId: string,
+    name: string,
+    content: Uint8Array,
+    idempotencyKey = randomUUID(),
+  ): Promise<TemporaryFileAttachment> {
+    const response = await this.request("/v1/files", {
+      method: "POST",
+      headers: {
+        "content-type": "application/octet-stream",
+        "x-agent-operator-recipient": recipientAgentId,
+        "x-agent-operator-name": encodeURIComponent(name),
+        "x-agent-operator-idempotency-key": idempotencyKey,
+      },
+      body: content,
+    });
+    return TemporaryFileAttachmentSchema.parse(await response.json());
+  }
+
+  async downloadTemporaryFile(fileId: string): Promise<Uint8Array> {
+    const response = await this.request(`/v1/files/${fileId}`);
+    return new Uint8Array(await response.arrayBuffer());
+  }
+
+  async acknowledgeTemporaryFile(fileId: string): Promise<void> {
+    await this.request(`/v1/files/${fileId}/ack`, {
+      method: "POST",
+      body: "{}",
+    });
+  }
+
   private async request(
     path: string | URL,
     init: RequestInit = {},
   ): Promise<Response> {
     const headers = new Headers(init.headers);
     headers.set("authorization", `Bearer ${this.token}`);
-    headers.set("content-type", "application/json");
+    if (init.body !== undefined && !headers.has("content-type")) {
+      headers.set("content-type", "application/json");
+    }
     const response = await fetch(
       path instanceof URL ? path : new URL(path, this.baseUrl),
       {

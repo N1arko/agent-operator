@@ -87,7 +87,7 @@ Coordinator должен сохранять один активный проце
 │   ├── backups/
 │   ├── compose.yaml
 │   └── Caddyfile
-└── release/agent-operator-worker-0.1.6.zip
+└── release/agent-operator-worker-0.1.7.zip
 ```
 
 ## 6. Контейнеры
@@ -193,6 +193,13 @@ Coordinator доступен внутри Docker network на `8787`. В инт�
 - после полного перезапуска Windows-приложения внешний prompt и result
   появились в исходном thread; сохранение общей истории подтверждено;
 - SQLite сохраняется в bind mount при пересоздании container.
+- перед миграцией `0.1.7` создан согласованный SQLite snapshot;
+- coordinator и оба worker обновлены до `0.1.7`;
+- Windows worker запускается через Scheduled Task и восстановил heartbeat
+  после отложенного переключения версии;
+- реальный temporary file E2E Mac → Windows передал файл в существующую
+  задачу, получил точное содержимое и завершился с пустыми таблицей
+  `temporary_files` и каталогом файлов coordinator.
 
 ## 11. Готовность
 

@@ -32,7 +32,7 @@ VPS выполняет роль mailbox и presence-сервиса: хранит
 - [Архитектурный черновик](docs/ARCHITECTURE.md)
 - [Профиль VPS clawvpn](docs/DEPLOYMENT_CLAWVPN.md)
 - [Checkpoint подключения Windows](docs/CHECKPOINT_WINDOWS.md)
-- [Обновление Windows-worker 0.1.6](docs/UPDATE_WINDOWS_0.1.6.md)
+- [Обновление Windows-worker 0.1.7](docs/UPDATE_WINDOWS_0.1.7.md)
 - [Канбан разработки](KANBAN.md)
 
 ## Статус
@@ -47,7 +47,10 @@ MVP прошёл `CP-WIN-01` на реальном Windows-worker:
   проект;
 - после отключения питания Windows-worker восстановил heartbeat и вернул
   контрольный ответ `ready`;
-- проверяемые Git-вложения работают в реальном направлении Windows → Mac.
+- проверяемые Git-вложения работают в обоих направлениях;
+- Windows-worker запускается и восстанавливается через Scheduled Task;
+- временный файл прошёл реальный E2E Mac → VPS → Windows с очисткой после
+  результата.
 
 Публичный endpoint:
 `https://agent-operator.188-241-197-83.sslip.io`.
@@ -58,14 +61,14 @@ MVP прошёл `CP-WIN-01` на реальном Windows-worker:
 Проверяемые Git-вложения прошли в направлениях Windows → Mac и Mac → Windows
 с сохранением ветки и working tree.
 
-Версия `0.1.6` запускает turn до открытия удалённой задачи в ChatGPT Desktop,
-добавляет заметный заголовок и возвращает `threadId` в result. Worker хранит
-принятую очередь в общем каталоге установки, coordinator выдаёт только новые
-сообщения и ограничивает backlog тремя запросами.
+Версия `0.1.7` сохраняет durable очередь и ограничение backlog, запускает turn
+до открытия удалённой задачи в ChatGPT Desktop и возвращает `threadId` в
+result. Временные вложения получают отдельный upload/download-контракт, TTL,
+quota и проверку SHA-256.
 
 Живой Windows E2E подтвердил доставку и выполнение headless turn. Открытая
 задача ChatGPT Desktop не получила его события. Desktop-native выполнение
-остаётся текущей карточкой AOP-073.
+зафиксировано в ожидающей карточке AOP-073.
 
 Подключение Agent Operator как MCP и routing skill к обычным чатам Mac и
 Windows ведётся в AOP-074. До её завершения инженерные E2E используют отдельный
