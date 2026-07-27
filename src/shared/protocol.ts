@@ -116,6 +116,7 @@ export const PublishResultSchema = z.object({
   rootMessageId: z.uuid(),
   replyTo: z.uuid(),
   toAgentId: z.string().min(1),
+  threadId: z.uuid().nullable().default(null),
   text: z.string(),
   attachments: z.array(AttachmentSchema).default([]),
   failed: z.boolean().default(false),

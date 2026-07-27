@@ -6,6 +6,7 @@ import { WorkerConfigFileSchema } from "../shared/protocol.js";
 import * as z from "zod/v4";
 import { CodexAppServer } from "./app-server.js";
 import { CoordinatorClient } from "./client.js";
+import { openDesktopThread } from "./desktop.js";
 import { Worker } from "./worker.js";
 
 const platform =
@@ -59,7 +60,7 @@ if (process.argv[2] === "diagnose") {
       currentProjectId: null,
       currentActivity: null,
       projects,
-      workerVersion: "0.1.4",
+      workerVersion: "0.1.6",
     });
     authenticated = true;
   }
@@ -103,6 +104,7 @@ if (process.argv[2] === "diagnose") {
       codexBin,
       Number(process.env.AOP_APP_SERVER_IDLE_MS ?? 60_000),
       codexArgs,
+      (threadId) => openDesktopThread(platform, threadId),
     ),
   });
 

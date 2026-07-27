@@ -95,6 +95,21 @@ describe("Agent Operator MCP", () => {
       "019f9ff2-42a3-7c43-92e9-ab1b9794e043",
     );
 
+    const blocked = await client.callTool({
+      name: "agent_start",
+      arguments: {
+        agentId: "mac",
+        projectId: "project-a",
+        message: "Fourth unfinished request",
+      },
+    });
+    assert.equal(blocked.isError, true);
+    const blockedContent = blocked.content as Array<{ text: string }>;
+    assert.match(
+      blockedContent[0]?.text ?? "",
+      /already has 3 unfinished requests/,
+    );
+
     store.createMessage({
       kind: "result",
       fromAgentId: "mac",

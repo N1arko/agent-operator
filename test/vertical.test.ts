@@ -17,7 +17,7 @@ import { CoordinatorClient } from "../src/worker/client.js";
 import { Worker } from "../src/worker/worker.js";
 
 class FakeAppServer {
-  starts: Array<{ cwd: string; prompt: string }> = [];
+  starts: Array<{ cwd: string; prompt: string; title: string }> = [];
   resumes: Array<{
     threadId: string;
     cwd: string | undefined;
@@ -35,10 +35,17 @@ class FakeAppServer {
     source: "appServer",
   };
   private sequence = 0;
+  readonly createdThreadId =
+    "019fa0b8-1abc-73f0-8126-3f8b6d64466c";
 
-  startThread(cwd: string, prompt: string): Promise<TurnHandle> {
-    this.starts.push({ cwd, prompt });
-    return Promise.resolve(this.handle(`thread-${++this.sequence}`, prompt));
+  startThread(
+    cwd: string,
+    prompt: string,
+    title: string,
+  ): Promise<TurnHandle> {
+    this.starts.push({ cwd, prompt, title });
+    this.sequence += 1;
+    return Promise.resolve(this.handle(this.createdThreadId, prompt));
   }
 
   resumeThread(
@@ -229,12 +236,25 @@ describe("local vertical scenario", () => {
       arguments: { afterCursor: 0, timeoutMs: 5_000 },
     });
     const firstOutput = firstWait.structuredContent as {
-      messages: Array<{ id: string; text: string; cursor: number }>;
+      messages: Array<{
+        id: string;
+        text: string;
+        cursor: number;
+        targetThreadId: string | null;
+      }>;
       nextCursor: number;
     };
     assert.equal(firstOutput.messages[0]?.text.startsWith("done: first"), true);
+    assert.equal(
+      firstOutput.messages[0].targetThreadId,
+      fakeAppServer.createdThreadId,
+    );
     assert.match(fakeAppServer.starts[0]?.prompt ?? "", /docs\/shared\.md/);
     assert.match(fakeAppServer.starts[0]?.prompt ?? "", /git show/);
+    assert.match(
+      fakeAppServer.starts[0]?.title ?? "",
+      /^\[Agent Operator\] first$/,
+    );
 
     await client.callTool({
       name: "agent_send",
@@ -253,7 +273,10 @@ describe("local vertical scenario", () => {
     };
     assert.equal(secondOutput.messages[0]?.text, "done: follow-up");
     assert.equal(fakeAppServer.starts.length, 1);
-    assert.equal(fakeAppServer.resumes[0]?.threadId, "thread-1");
+    assert.equal(
+      fakeAppServer.resumes[0]?.threadId,
+      fakeAppServer.createdThreadId,
+    );
 
     await client.callTool({
       name: "agent_threads",

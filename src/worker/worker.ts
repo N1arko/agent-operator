@@ -23,6 +23,11 @@ const ThreadsQuerySchema = z.object({
   limit: z.number().int().min(1).max(20),
 });
 
+const remoteThreadTitle = (message: Message): string => {
+  const summary = message.text.replace(/\s+/g, " ").trim().slice(0, 64);
+  return `[Agent Operator] ${summary}`;
+};
+
 export type WorkerOptions = {
   agentName: string;
   platform: "macos" | "windows" | "linux" | "unknown";
@@ -30,7 +35,11 @@ export type WorkerOptions = {
   stateFile: string;
   client: CoordinatorClient;
   appServer: {
-    startThread(cwd: string, prompt: string): Promise<TurnHandle>;
+    startThread(
+      cwd: string,
+      prompt: string,
+      title: string,
+    ): Promise<TurnHandle>;
     resumeThread(
       threadId: string,
       cwd: string | undefined,
@@ -54,13 +63,19 @@ export class Worker {
   private stopped = false;
   private running = false;
   private heartbeatTimer: NodeJS.Timeout | undefined;
+  private stateWrite: Promise<void> = Promise.resolve();
 
   constructor(private readonly options: WorkerOptions) {}
 
   async start(): Promise<void> {
     this.state = await loadState(this.options.stateFile);
     this.projects = await this.loadProjects();
+    for (const message of this.state.pendingMessages) {
+      const item = this.workItem(message);
+      if (item) this.enqueue(item);
+    }
     await this.sendHeartbeat();
+    void this.runNext();
     this.heartbeatTimer = setInterval(
       () =>
         void this.sendHeartbeat().catch((error: unknown) =>
@@ -74,7 +89,7 @@ export class Worker {
         for (const message of inbox.messages) await this.receive(message);
         if (inbox.nextCursor > this.state.cursor) {
           this.state.cursor = inbox.nextCursor;
-          await saveState(this.options.stateFile, this.state);
+          await this.persistState();
         }
       } catch (error) {
         console.error("[worker]", error);
@@ -90,32 +105,57 @@ export class Worker {
   }
 
   private async receive(message: Message): Promise<void> {
-    await this.options.client.acknowledge(message.id);
-    if (message.kind === "start") {
-      this.queue.push({ message, mode: "start" });
-      void this.runNext();
+    const item = this.workItem(message);
+    if (!item) {
+      await this.options.client.acknowledge(message.id);
       return;
     }
+    const alreadyPending = this.state.pendingMessages.some(
+      (entry) => entry.id === message.id,
+    );
+    if (!alreadyPending) {
+      this.state.pendingMessages.push(message);
+      await this.persistState();
+    }
+    await this.options.client.acknowledge(message.id);
+    if (
+      item.mode === "resume" &&
+      message.attachments.length === 0 &&
+      this.active?.item.message.rootMessageId === message.rootMessageId
+    ) {
+      try {
+        if (await this.options.appServer.steer(this.active.handle, message.text)) {
+          await this.removePending(message.id);
+          return;
+        }
+      } catch (error) {
+        console.error("[worker] steering failed; queuing message", error);
+      }
+    }
+    this.enqueue(item);
+    void this.runNext();
+  }
+
+  private workItem(message: Message): WorkItem | null {
+    if (message.kind === "start") return { message, mode: "start" };
     if (message.kind === "threads_query") {
-      this.queue.push({ message, mode: "threads_query" });
-      void this.runNext();
-      return;
+      return { message, mode: "threads_query" };
     }
     if (message.kind === "thread_send") {
-      this.queue.push({ message, mode: "thread_send" });
-      void this.runNext();
-      return;
+      return { message, mode: "thread_send" };
     }
-    if (message.kind !== "send") return;
+    if (message.kind === "send") return { message, mode: "resume" };
+    return null;
+  }
+
+  private enqueue(item: WorkItem): void {
     if (
-      message.attachments.length === 0 &&
-      this.active?.item.message.rootMessageId === message.rootMessageId &&
-      (await this.options.appServer.steer(this.active.handle, message.text))
+      this.active?.item.message.id === item.message.id ||
+      this.queue.some((entry) => entry.message.id === item.message.id)
     ) {
       return;
     }
-    this.queue.push({ message, mode: "resume" });
-    void this.runNext();
+    this.queue.push(item);
   }
 
   private async runNext(): Promise<void> {
@@ -169,13 +209,17 @@ export class Worker {
     }
     await access(project.path);
     const prompt = await this.preparePrompt(item.message, project);
-    const handle = await this.options.appServer.startThread(project.path, prompt);
+    const handle = await this.options.appServer.startThread(
+      project.path,
+      prompt,
+      remoteThreadTitle(item.message),
+    );
     this.state.threads[item.message.rootMessageId] = {
       threadId: handle.threadId,
       projectId: project.id,
       requesterAgentId: item.message.fromAgentId,
     };
-    await saveState(this.options.stateFile, this.state);
+    await this.persistState();
     return {
       handle,
       activity: `${project.name}: ${item.message.text.slice(0, 160)}`,
@@ -230,7 +274,7 @@ export class Worker {
       projectId: project?.id ?? null,
       requesterAgentId: item.message.fromAgentId,
     };
-    await saveState(this.options.stateFile, this.state);
+    await this.persistState();
     return {
       handle,
       activity: `${project?.name ?? thread.title ?? "Existing task"}: ${item.message.text.slice(0, 160)}`,
@@ -298,17 +342,45 @@ export class Worker {
     const binding = this.state.threads[item.message.rootMessageId];
     const requesterAgentId =
       binding?.requesterAgentId ?? item.message.fromAgentId;
-    await this.options.client.publishResult({
-      rootMessageId: item.message.rootMessageId,
-      replyTo: item.message.id,
-      toAgentId: requesterAgentId,
-      text,
-      attachments: [],
-      failed: status !== "completed",
-    });
+    try {
+      await this.options.client.publishResult({
+        rootMessageId: item.message.rootMessageId,
+        replyTo: item.message.id,
+        toAgentId: requesterAgentId,
+        threadId:
+          binding?.threadId ?? item.message.targetThreadId ?? null,
+        text,
+        attachments: [],
+        failed: status !== "completed",
+      });
+    } catch (error) {
+      console.error("[worker] result delivery failed; retrying", error);
+      setTimeout(
+        () => void this.complete(item, status, text),
+        2_000,
+      );
+      return;
+    }
+    await this.removePending(item.message.id);
     if (this.active?.item.message.id === item.message.id) this.active = undefined;
     await this.sendHeartbeat();
     void this.runNext();
+  }
+
+  private async removePending(messageId: string): Promise<void> {
+    const next = this.state.pendingMessages.filter(
+      (message) => message.id !== messageId,
+    );
+    if (next.length === this.state.pendingMessages.length) return;
+    this.state.pendingMessages = next;
+    await this.persistState();
+  }
+
+  private persistState(): Promise<void> {
+    this.stateWrite = this.stateWrite.then(() =>
+      saveState(this.options.stateFile, this.state),
+    );
+    return this.stateWrite;
   }
 
   private async loadProjects(): Promise<ProjectConfig[]> {
@@ -371,7 +443,7 @@ export class Worker {
         null,
       currentActivity: this.active?.activity ?? null,
       projects: descriptors,
-      workerVersion: "0.1.4",
+      workerVersion: "0.1.6",
     });
   }
 }

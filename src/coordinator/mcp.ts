@@ -3,6 +3,8 @@ import * as z from "zod/v4";
 import { GitFileAttachmentSchema } from "../shared/protocol.js";
 import type { CoordinatorStore } from "./store.js";
 
+const MAX_OUTSTANDING_REQUESTS = 3;
+
 const response = (value: unknown) => ({
   content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }],
   structuredContent:
@@ -24,6 +26,18 @@ const waitForMessages = async (
     messages = store.listMessages(agentId, afterCursor);
   }
   return messages;
+};
+
+const ensureQueueCapacity = (
+  store: CoordinatorStore,
+  agentId: string,
+): void => {
+  const outstanding = store.countOutstandingRequests(agentId);
+  if (outstanding >= MAX_OUTSTANDING_REQUESTS) {
+    throw new Error(
+      `Agent ${agentId} already has ${outstanding} unfinished requests; wait for a result`,
+    );
+  }
 };
 
 export const createMcpServer = (
@@ -95,6 +109,7 @@ export const createMcpServer = (
         .listProjects(agentId)
         .find((candidate) => candidate.id === projectId && candidate.available);
       if (!project) throw new Error(`Unavailable project: ${projectId}`);
+      ensureQueueCapacity(store, agentId);
       const queued = store.createMessage({
         kind: "start",
         fromAgentId: callerAgentId,
@@ -122,6 +137,7 @@ export const createMcpServer = (
     },
     ({ agentId, query, limit }) => {
       if (!store.getAgent(agentId)) throw new Error(`Unknown agent: ${agentId}`);
+      ensureQueueCapacity(store, agentId);
       const queued = store.createMessage({
         kind: "threads_query",
         fromAgentId: callerAgentId,
@@ -146,6 +162,7 @@ export const createMcpServer = (
     },
     ({ agentId, threadId, message }) => {
       if (!store.getAgent(agentId)) throw new Error(`Unknown agent: ${agentId}`);
+      ensureQueueCapacity(store, agentId);
       const queued = store.createMessage({
         kind: "thread_send",
         fromAgentId: callerAgentId,
@@ -181,6 +198,7 @@ export const createMcpServer = (
         previous.fromAgentId === callerAgentId
           ? previous.toAgentId
           : previous.fromAgentId;
+      ensureQueueCapacity(store, toAgentId);
       const queued = store.createMessage({
         kind: "send",
         fromAgentId: callerAgentId,

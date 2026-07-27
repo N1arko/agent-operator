@@ -103,6 +103,24 @@ export class CoordinatorStore {
     if (!messageColumns.some((column) => column.name === "target_thread_id")) {
       this.db.exec("ALTER TABLE messages ADD COLUMN target_thread_id TEXT");
     }
+    this.db.exec(`
+      UPDATE messages
+      SET status = CASE
+        WHEN EXISTS (
+          SELECT 1 FROM messages AS result
+          WHERE result.kind = 'result'
+            AND result.reply_to = messages.id
+            AND result.status = 'failed'
+        ) THEN 'failed'
+        ELSE 'completed'
+      END
+      WHERE kind != 'result'
+        AND EXISTS (
+          SELECT 1 FROM messages AS result
+          WHERE result.kind = 'result'
+            AND result.reply_to = messages.id
+        )
+    `);
   }
 
   heartbeat(agentId: string, input: Heartbeat): void {
@@ -249,12 +267,55 @@ export class CoordinatorStore {
     return rows.map((row) => this.mapMessage(row));
   }
 
+  listQueuedMessages(agentId: string, afterCursor = 0): Message[] {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM messages
+         WHERE to_agent_id = ? AND seq > ? AND status = 'queued'
+         ORDER BY seq LIMIT 100`,
+      )
+      .all(agentId, afterCursor) as unknown as MessageRow[];
+    return rows.map((row) => this.mapMessage(row));
+  }
+
+  countOutstandingRequests(agentId: string): number {
+    const row = this.db
+      .prepare(
+        `SELECT COUNT(*) AS count FROM messages
+         WHERE to_agent_id = ?
+           AND kind != 'result'
+           AND status IN ('queued', 'delivered')`,
+      )
+      .get(agentId) as { count: number };
+    return row.count;
+  }
+
   acknowledge(messageId: string): void {
     this.db
       .prepare(
         "UPDATE messages SET status = 'delivered' WHERE id = ? AND status = 'queued'",
       )
       .run(messageId);
+  }
+
+  findResult(fromAgentId: string, replyTo: string): Message | null {
+    const row = this.db
+      .prepare(
+        `SELECT * FROM messages
+         WHERE from_agent_id = ? AND reply_to = ? AND kind = 'result'
+         ORDER BY seq LIMIT 1`,
+      )
+      .get(fromAgentId, replyTo) as MessageRow | undefined;
+    return row ? this.mapMessage(row) : null;
+  }
+
+  completeMessage(messageId: string, failed: boolean): void {
+    this.db
+      .prepare(
+        `UPDATE messages SET status = ?
+         WHERE id = ? AND status IN ('queued', 'delivered')`,
+      )
+      .run(failed ? "failed" : "completed", messageId);
   }
 
   close(): void {

@@ -34,6 +34,24 @@ try {
   } else {
     & codex --version | Out-Null
   }
+  $installRoot = Split-Path -Parent $PSScriptRoot
+  $stateFile = Join-Path $installRoot "data\worker-state.json"
+  if (-not (Test-Path $stateFile)) {
+    $previousState = Get-ChildItem -Path $installRoot -Directory |
+      ForEach-Object {
+        $candidate = Join-Path $_.FullName "data\worker-state.json"
+        if (Test-Path $candidate) {
+          Get-Item $candidate
+        }
+      } |
+      Sort-Object LastWriteTimeUtc -Descending |
+      Select-Object -First 1
+    if ($previousState) {
+      New-Item -ItemType Directory -Path (Split-Path -Parent $stateFile) -Force |
+        Out-Null
+      Copy-Item -Path $previousState.FullName -Destination $stateFile
+    }
+  }
   $envPath = Join-Path $PSScriptRoot "worker.env"
   @(
     "AOP_COORDINATOR_URL=$CoordinatorUrl"
@@ -41,7 +59,7 @@ try {
     "AOP_AGENT_NAME=$AgentName"
     "AOP_DEVICE_TOKEN=$DeviceToken"
     "AOP_PROJECTS_FILE=$ProjectsFile"
-    "AOP_STATE_FILE=$(Join-Path $PSScriptRoot 'data\worker-state.json')"
+    "AOP_STATE_FILE=$stateFile"
     "AOP_CODEX_BIN=$codexBin"
     "AOP_CODEX_ARGS_JSON=$codexArgsJson"
   ) | Set-Content -Path $envPath -Encoding UTF8

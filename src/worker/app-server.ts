@@ -150,19 +150,34 @@ export class CodexAppServer {
     private readonly codexBin: string,
     private readonly idleTimeoutMs = 60_000,
     private readonly codexArgs: string[] = [],
+    private readonly onThreadReady: (threadId: string) => Promise<void> = () =>
+      Promise.resolve(),
   ) {}
 
-  async startThread(cwd: string, prompt: string): Promise<TurnHandle> {
+  async startThread(
+    cwd: string,
+    prompt: string,
+    title: string,
+  ): Promise<TurnHandle> {
     this.cancelIdleStop();
     await this.ensureStarted();
-    const started = await this.request("thread/start", {
-      cwd,
-      approvalPolicy: "never",
-      sandbox: "workspace-write",
-      ephemeral: false,
-    });
-    const thread = started.thread as JsonObject;
-    return this.startTurn(String(thread.id), prompt);
+    try {
+      const started = await this.request("thread/start", {
+        cwd,
+        approvalPolicy: "never",
+        sandbox: "workspace-write",
+        ephemeral: false,
+      });
+      const thread = started.thread as JsonObject;
+      const threadId = String(thread.id);
+      await this.request("thread/name/set", { threadId, name: title });
+      const handle = await this.startTurn(threadId, prompt);
+      await this.showThread(threadId);
+      return handle;
+    } catch (error) {
+      this.scheduleIdleStop();
+      throw error;
+    }
   }
 
   async resumeThread(
@@ -172,11 +187,18 @@ export class CodexAppServer {
   ): Promise<TurnHandle> {
     this.cancelIdleStop();
     await this.ensureStarted();
-    await this.request("thread/resume", {
-      threadId,
-      ...(cwd ? { cwd } : {}),
-    });
-    return this.startTurn(threadId, prompt);
+    try {
+      await this.request("thread/resume", {
+        threadId,
+        ...(cwd ? { cwd } : {}),
+      });
+      const handle = await this.startTurn(threadId, prompt);
+      await this.showThread(threadId);
+      return handle;
+    } catch (error) {
+      this.scheduleIdleStop();
+      throw error;
+    }
   }
 
   async listThreads(query: string | undefined, limit: number): Promise<LocalThread[]> {
@@ -221,6 +243,7 @@ export class CodexAppServer {
         expectedTurnId: handle.turnId,
         input: [textInput(message)],
       });
+      await this.showThread(handle.threadId);
       return true;
     } catch (error) {
       if (error instanceof Error && error.message.includes("no active turn")) {
@@ -307,7 +330,7 @@ export class CodexAppServer {
       clientInfo: {
         name: "agent-operator-worker",
         title: "Agent Operator worker",
-        version: "0.1.4",
+        version: "0.1.6",
       },
       capabilities: {
         experimentalApi: true,
@@ -389,5 +412,13 @@ export class CodexAppServer {
   private cancelIdleStop(): void {
     if (this.idleTimer) clearTimeout(this.idleTimer);
     this.idleTimer = null;
+  }
+
+  private async showThread(threadId: string): Promise<void> {
+    try {
+      await this.onThreadReady(threadId);
+    } catch (error) {
+      console.error("[app-server] unable to open ChatGPT Desktop task", error);
+    }
   }
 }

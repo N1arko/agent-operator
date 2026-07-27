@@ -57,7 +57,7 @@ export const createCoordinatorApp = (
     response.type("application/zip");
     response.setHeader(
       "content-disposition",
-      'attachment; filename="agent-operator-worker-0.1.4.zip"',
+      'attachment; filename="agent-operator-worker-0.1.6.zip"',
     );
     createReadStream(path).pipe(response);
   });
@@ -77,10 +77,10 @@ export const createCoordinatorApp = (
       Math.min(requestedWait, options.maxWaitMs ?? 25_000),
     );
     const deadline = Date.now() + waitMs;
-    let messages = store.listMessages(agentId, after);
+    let messages = store.listQueuedMessages(agentId, after);
     while (messages.length === 0 && Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, 250));
-      messages = store.listMessages(agentId, after);
+      messages = store.listQueuedMessages(agentId, after);
     }
     response.json({
       messages,
@@ -102,16 +102,25 @@ export const createCoordinatorApp = (
 
   app.post("/v1/worker/results", authenticate, (request, response) => {
     const input = PublishResultSchema.parse(request.body);
+    const agentId = String(response.locals.agentId);
+    const existing = store.findResult(agentId, input.replyTo);
+    if (existing) {
+      store.completeMessage(input.replyTo, input.failed);
+      response.status(200).json(existing);
+      return;
+    }
     const result = store.createMessage({
       kind: "result",
-      fromAgentId: String(response.locals.agentId),
+      fromAgentId: agentId,
       toAgentId: input.toAgentId,
       rootMessageId: input.rootMessageId,
       replyTo: input.replyTo,
+      targetThreadId: input.threadId,
       text: input.text,
       attachments: input.attachments,
       status: input.failed ? "failed" : "completed",
     });
+    store.completeMessage(input.replyTo, input.failed);
     response.status(201).json(result);
   });
 

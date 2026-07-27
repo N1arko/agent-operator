@@ -2,6 +2,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 import * as z from "zod/v4";
+import { MessageSchema } from "../shared/protocol.js";
 
 const ThreadBindingSchema = z.object({
   threadId: z.string().min(1),
@@ -12,6 +13,7 @@ const ThreadBindingSchema = z.object({
 const WorkerStateSchema = z.object({
   cursor: z.number().int().nonnegative().default(0),
   threads: z.record(z.string(), ThreadBindingSchema).default({}),
+  pendingMessages: z.array(MessageSchema).default([]),
 });
 export type WorkerState = z.infer<typeof WorkerStateSchema>;
 
@@ -20,7 +22,7 @@ export const loadState = async (path: string): Promise<WorkerState> => {
     return WorkerStateSchema.parse(JSON.parse(await readFile(path, "utf8")));
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      return { cursor: 0, threads: {} };
+      return { cursor: 0, threads: {}, pendingMessages: [] };
     }
     throw error;
   }

@@ -70,6 +70,42 @@ describe("CoordinatorStore", () => {
     assert.ok(result.cursor > start.cursor);
   });
 
+  it("delivers only queued worker messages and completes each request once", () => {
+    const store = createStore();
+    const start = store.createMessage({
+      kind: "start",
+      fromAgentId: "mac",
+      toAgentId: "windows",
+      projectId: "local-project",
+      text: "Inspect",
+    });
+
+    assert.deepEqual(
+      store.listQueuedMessages("windows", 0).map((message) => message.id),
+      [start.id],
+    );
+    store.acknowledge(start.id);
+    assert.deepEqual(store.listQueuedMessages("windows", 0), []);
+    assert.equal(store.listMessages("windows", 0)[0]?.status, "delivered");
+    assert.equal(store.countOutstandingRequests("windows"), 1);
+
+    const result = store.createMessage({
+      kind: "result",
+      fromAgentId: "windows",
+      toAgentId: "mac",
+      rootMessageId: start.rootMessageId,
+      replyTo: start.id,
+      text: "Done",
+      status: "completed",
+    });
+    store.completeMessage(start.id, false);
+
+    assert.equal(store.findResult("windows", start.id)?.id, result.id);
+    assert.equal(store.getMessage(start.id).status, "completed");
+    assert.equal(store.countOutstandingRequests("windows"), 0);
+    assert.deepEqual(store.listQueuedMessages("windows", 0), []);
+  });
+
   it("stores an exact target thread for projectless work", () => {
     const store = createStore();
     const message = store.createMessage({

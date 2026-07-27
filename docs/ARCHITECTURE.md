@@ -62,6 +62,8 @@ Coordinator не управляет Codex thread и не читает локал
 - доставлять связанное сообщение в активную сессию;
 - автоматически публиковать result;
 - проверять и разрешать Git-вложения в выбранном проекте;
+- задавать понятный заголовок удалённой задаче;
+- открывать выполняемую задачу в ChatGPT Desktop;
 - загружать и скачивать временные файлы;
 - останавливать app-server после idle timeout.
 
@@ -226,6 +228,7 @@ created_at
 
 Создаёт корневое сообщение без `replyTo`. Свободный агент создаёт свежий
 thread в выбранном проекте. Занятый агент сохраняет запуск в очереди.
+Coordinator принимает до трёх незавершённых запросов на одного worker.
 `attachments` принимает до 20 Git-файлов.
 
 ### `agent_threads`
@@ -365,10 +368,10 @@ Worker находит mapping и продолжает соответствующ
 
 После перезапуска:
 
-1. Worker загружает локальный `threadId`.
-2. Запускает app-server.
-3. Вызывает `thread/resume`.
-4. Продолжает очередь сообщений.
+1. Worker загружает локальные bindings и `pendingMessages`.
+2. Восстанавливает очередь из общего state file.
+3. Запускает app-server для первого ожидающего запроса.
+4. Вызывает `thread/resume` для связанной задачи.
 
 ### Существующая задача
 
@@ -377,7 +380,9 @@ Worker находит mapping и продолжает соответствующ
    локальном совпадении.
 3. `agent_thread_send` проверяет точный ID через `thread/read` без turns.
 4. Worker вызывает `thread/resume` по ID без замены `cwd`.
-5. Завершение turn возвращается обычным result-сообщением.
+5. Worker запускает turn и открывает `codex://threads/<threadId>` в ChatGPT
+   Desktop.
+6. Завершение turn возвращается обычным result-сообщением с `threadId`.
 
 Codex App Server поддерживает создание, возобновление, steering, interrupt,
 передачу `cwd` и поток событий. Официальное описание:
@@ -448,7 +453,9 @@ worker online
   → start app-server
   → initialize
   → resume thread
-  → process turns
+  → start turn
+  → open active thread in ChatGPT Desktop
+  → process turn events
   → idle timeout
   → graceful shutdown
 ```
