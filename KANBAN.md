@@ -23,8 +23,13 @@ pending queue в общем каталоге, выдаёт worker только `
 
 Coordinator, Mac-worker и Windows-worker обновлены до `0.1.6`. Контрольный
 Windows turn вернул `WINDOWS_DESKTOP_VISIBLE_016_OK`, worker остался `idle`,
-backlog равен нулю. Остаётся визуальное подтверждение пользователя в
-ChatGPT Desktop для thread `019fa0de-5190-7862-99e4-de80693c52e9`.
+backlog равен нулю.
+
+Desktop E2E провален. В существующем thread
+`019fa029-b404-7d03-9896-d2d2fbcedcba` worker выполнил запрос `А сейчас?` и
+получил ответ, а открытая Windows-вкладка не показала prompt и result после
+переключения между задачами. Следующий шаг описан в ADR-0008: turn должен
+запускаться через runtime ChatGPT Desktop.
 
 ## Контрольные точки
 

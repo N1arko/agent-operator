@@ -63,7 +63,7 @@ Coordinator не управляет Codex thread и не читает локал
 - автоматически публиковать result;
 - проверять и разрешать Git-вложения в выбранном проекте;
 - задавать понятный заголовок удалённой задаче;
-- открывать выполняемую задачу в ChatGPT Desktop;
+- передавать Desktop deep link как best-effort навигацию;
 - загружать и скачивать временные файлы;
 - останавливать app-server после idle timeout.
 
@@ -383,6 +383,11 @@ Worker находит mapping и продолжает соответствующ
 5. Worker запускает turn и открывает `codex://threads/<threadId>` в ChatGPT
    Desktop.
 6. Завершение turn возвращается обычным result-сообщением с `threadId`.
+
+Deep link не синхронизирует поток turn между отдельным app-server worker и
+app-server ChatGPT Desktop. Этот путь считается headless-выполнением с
+навигацией. Для визуального E2E нужен Desktop-owned turn; решение исследуется в
+ADR-0008.
 
 Codex App Server поддерживает создание, возобновление, steering, interrupt,
 передачу `cwd` и поток событий. Официальное описание:

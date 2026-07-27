@@ -187,6 +187,9 @@ Coordinator доступен внутри Docker network на `8787`. В инт�
 - одиночный Windows E2E создал thread
   `019fa0de-5190-7862-99e4-de80693c52e9`, выполнил turn и вернул
   `WINDOWS_DESKTOP_VISIBLE_016_OK`; backlog после проверки равен нулю;
+- визуальная проверка существующего thread выявила, что открытый ChatGPT
+  Desktop не получает prompt и result отдельного app-server. Desktop E2E
+  остаётся незавершённым;
 - SQLite сохраняется в bind mount при пересоздании container.
 
 ## 11. Готовность
