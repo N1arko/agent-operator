@@ -1,0 +1,15 @@
+interface:
+  display_name: "Coordinate agents"
+  short_description: "Route work between connected Codex computers"
+  default_prompt: "Use $coordinate-agents to send this work to another connected Codex computer."
+
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "agent-operator"
+      description: "Agent Operator coordinator"
+      transport: "streamable_http"
+      url: "https://agent-operator.188-241-197-83.sslip.io/mcp"
+
+policy:
+  allow_implicit_invocation: true

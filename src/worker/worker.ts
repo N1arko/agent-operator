@@ -6,10 +6,15 @@ import {
   WorkerConfigFileSchema,
   type GitFileAttachment,
   type Message,
+  type ModelDescriptor,
   type ProjectConfig,
   type TemporaryFileAttachment,
 } from "../shared/protocol.js";
-import type { LocalThread, TurnHandle } from "./app-server.js";
+import type {
+  LocalThread,
+  TurnHandle,
+  TurnOptions,
+} from "./app-server.js";
 import { CoordinatorClient } from "./client.js";
 import { appendGitFilesToPrompt, resolveGitFile } from "./git-file.js";
 import { loadState, saveState, type WorkerState } from "./state.js";
@@ -22,7 +27,13 @@ import {
 
 type WorkItem = {
   message: Message;
-  mode: "start" | "resume" | "threads_query" | "thread_send";
+  mode: "start" | "resume" | "threads_query" | "thread_send" | "models_query";
+};
+
+type StartedWork = {
+  handle: TurnHandle;
+  activity: string;
+  canSteer: boolean;
 };
 
 const ThreadsQuerySchema = z.object({
@@ -43,20 +54,45 @@ export type WorkerOptions = {
   temporaryDirectory: string;
   client: CoordinatorClient;
   appServer: {
+    createThread(
+      cwd: string,
+      title: string,
+      options?: TurnOptions,
+    ): Promise<string>;
     startThread(
       cwd: string,
       prompt: string,
       title: string,
+      options?: TurnOptions,
     ): Promise<TurnHandle>;
     resumeThread(
       threadId: string,
       cwd: string | undefined,
       prompt: string,
+      options?: TurnOptions,
     ): Promise<TurnHandle>;
     listThreads(query: string | undefined, limit: number): Promise<LocalThread[]>;
     readThread(threadId: string): Promise<LocalThread>;
+    listModels(): Promise<ModelDescriptor[]>;
+    waitForTurn(
+      threadId: string,
+      turnId: string,
+    ): Promise<{ status: string; text: string }>;
     steer(handle: TurnHandle, message: string): Promise<boolean>;
+    interrupt(handle: TurnHandle): Promise<void>;
     stop(): Promise<void>;
+  };
+  desktopFollower?: {
+    resumeThread(
+      threadId: string,
+      prompt: string,
+      options?: TurnOptions,
+      externalCompletion?: (
+        threadId: string,
+        turnId: string,
+      ) => Promise<{ status: string; text: string }>,
+    ): Promise<TurnHandle>;
+    interrupt(handle: TurnHandle): Promise<void>;
   };
   heartbeatMs?: number;
 };
@@ -66,7 +102,13 @@ export class Worker {
   private projects: ProjectConfig[] = [];
   private queue: WorkItem[] = [];
   private active:
-    | { item: WorkItem; handle: TurnHandle; activity: string }
+    | {
+        item: WorkItem;
+        handle: TurnHandle;
+        activity: string;
+        canSteer: boolean;
+        leaseTimer: NodeJS.Timeout | undefined;
+      }
     | undefined;
   private stopped = false;
   private running = false;
@@ -76,6 +118,7 @@ export class Worker {
     string,
     DownloadedTemporaryFile[]
   >();
+  private readonly settledMessages = new Set<string>();
 
   constructor(private readonly options: WorkerOptions) {}
 
@@ -117,6 +160,10 @@ export class Worker {
   }
 
   private async receive(message: Message): Promise<void> {
+    if (message.kind === "cancel") {
+      await this.receiveCancellation(message);
+      return;
+    }
     const item = this.workItem(message);
     if (!item) {
       await this.options.client.acknowledge(message.id);
@@ -133,7 +180,8 @@ export class Worker {
     if (
       item.mode === "resume" &&
       message.attachments.length === 0 &&
-      this.active?.item.message.rootMessageId === message.rootMessageId
+      this.active?.canSteer === true &&
+      this.active.item.message.rootMessageId === message.rootMessageId
     ) {
       try {
         if (await this.options.appServer.steer(this.active.handle, message.text)) {
@@ -155,6 +203,9 @@ export class Worker {
     }
     if (message.kind === "thread_send") {
       return { message, mode: "thread_send" };
+    }
+    if (message.kind === "models_query") {
+      return { message, mode: "models_query" };
     }
     if (message.kind === "send") return { message, mode: "resume" };
     return null;
@@ -180,23 +231,50 @@ export class Worker {
         await this.findThreads(item);
         return;
       }
+      if (item.mode === "models_query") {
+        await this.findModels(item);
+        return;
+      }
+      if (
+        item.message.leaseExpiresAt &&
+        Date.parse(item.message.leaseExpiresAt) <= Date.now()
+      ) {
+        await this.complete(
+          item,
+          "failed",
+          `Request lease expired at ${item.message.leaseExpiresAt}`,
+        );
+        return;
+      }
 
-      const { handle, activity } =
+      await this.validateModelSelection(item.message);
+      const { handle, activity, canSteer } =
         item.mode === "start"
           ? await this.startProjectThread(item)
           : item.mode === "thread_send"
             ? await this.startExistingThread(item)
             : await this.resumeBoundThread(item);
-      this.active = { item, handle, activity };
+      this.active = {
+        item,
+        handle,
+        activity,
+        canSteer,
+        leaseTimer: this.armLease(item, handle),
+      };
       await this.sendHeartbeat();
       void handle.completed
-        .then((result) => this.complete(item, result.status, result.text))
+        .then((result) => {
+          if (this.settledMessages.has(item.message.id)) return;
+          return this.complete(item, result.status, result.text);
+        })
         .catch((error: unknown) =>
-          this.complete(
-            item,
-            "failed",
-            error instanceof Error ? error.message : String(error),
-          ),
+          this.settledMessages.has(item.message.id)
+            ? undefined
+            : this.complete(
+                item,
+                "failed",
+                error instanceof Error ? error.message : String(error),
+              ),
         );
     } catch (error) {
       await this.complete(
@@ -212,7 +290,7 @@ export class Worker {
 
   private async startProjectThread(
     item: WorkItem,
-  ): Promise<{ handle: TurnHandle; activity: string }> {
+  ): Promise<StartedWork> {
     const project = this.projects.find(
       (entry) => entry.id === item.message.projectId,
     );
@@ -221,11 +299,45 @@ export class Worker {
     }
     await access(project.path);
     const prompt = await this.preparePrompt(item.message, project);
-    const handle = await this.options.appServer.startThread(
-      project.path,
-      prompt,
-      remoteThreadTitle(item.message),
-    );
+    const title = remoteThreadTitle(item.message);
+    const desktopFollower = this.options.desktopFollower;
+    let handle: TurnHandle;
+    let desktopAccepted = false;
+    if (desktopFollower) {
+      const threadId = await this.options.appServer.createThread(
+        project.path,
+        title,
+        this.turnOptions(item.message),
+      );
+      try {
+        handle = await desktopFollower.resumeThread(
+          threadId,
+          prompt,
+          this.turnOptions(item.message),
+          (acceptedThreadId, turnId) =>
+            this.options.appServer.waitForTurn(acceptedThreadId, turnId),
+        );
+        desktopAccepted = true;
+      } catch (error) {
+        console.warn(
+          "[worker] Codex Desktop rejected the initial turn; using app-server",
+          error,
+        );
+        handle = await this.options.appServer.resumeThread(
+          threadId,
+          project.path,
+          prompt,
+          this.turnOptions(item.message),
+        );
+      }
+    } else {
+      handle = await this.options.appServer.startThread(
+        project.path,
+        prompt,
+        title,
+        this.turnOptions(item.message),
+      );
+    }
     this.state.threads[item.message.rootMessageId] = {
       threadId: handle.threadId,
       projectId: project.id,
@@ -235,12 +347,13 @@ export class Worker {
     return {
       handle,
       activity: `${project.name}: ${item.message.text.slice(0, 160)}`,
+      canSteer: !desktopAccepted,
     };
   }
 
   private async resumeBoundThread(
     item: WorkItem,
-  ): Promise<{ handle: TurnHandle; activity: string }> {
+  ): Promise<StartedWork> {
     const binding = this.state.threads[item.message.rootMessageId];
     if (!binding) {
       throw new Error(`No thread binding for ${item.message.rootMessageId}`);
@@ -253,19 +366,42 @@ export class Worker {
     }
     if (project) await access(project.path);
     const prompt = await this.preparePrompt(item.message, project);
+    const desktopFollower = this.options.desktopFollower;
+    if (desktopFollower) {
+      try {
+        return {
+          handle: await desktopFollower.resumeThread(
+            binding.threadId,
+            prompt,
+            this.turnOptions(item.message),
+            (threadId, turnId) =>
+              this.options.appServer.waitForTurn(threadId, turnId),
+          ),
+          activity: `${project?.name ?? "Existing task"}: ${item.message.text.slice(0, 160)}`,
+          canSteer: false,
+        };
+      } catch (error) {
+        console.warn(
+          "[worker] Codex Desktop rejected the turn; using app-server",
+          error,
+        );
+      }
+    }
     return {
       handle: await this.options.appServer.resumeThread(
         binding.threadId,
         project?.path,
         prompt,
+        this.turnOptions(item.message),
       ),
       activity: `${project?.name ?? "Existing task"}: ${item.message.text.slice(0, 160)}`,
+      canSteer: true,
     };
   }
 
   private async startExistingThread(
     item: WorkItem,
-  ): Promise<{ handle: TurnHandle; activity: string }> {
+  ): Promise<StartedWork> {
     const threadId = item.message.targetThreadId;
     if (!threadId) throw new Error("Missing target thread ID");
     const thread = await this.options.appServer.readThread(threadId);
@@ -276,10 +412,31 @@ export class Worker {
     }
     const project = this.projectForCwd(thread.cwd);
     const prompt = await this.preparePrompt(item.message, project);
-    const handle = await this.options.appServer.resumeThread(
+    const desktopFollower = this.options.desktopFollower;
+    let handle: TurnHandle | undefined;
+    let desktopAccepted = false;
+    if (desktopFollower) {
+      try {
+        handle = await desktopFollower.resumeThread(
+          threadId,
+          prompt,
+          this.turnOptions(item.message),
+          (acceptedThreadId, turnId) =>
+            this.options.appServer.waitForTurn(acceptedThreadId, turnId),
+        );
+        desktopAccepted = true;
+      } catch (error) {
+        console.warn(
+          "[worker] Codex Desktop rejected the turn; using app-server",
+          error,
+        );
+      }
+    }
+    handle ??= await this.options.appServer.resumeThread(
       threadId,
       undefined,
       prompt,
+      this.turnOptions(item.message),
     );
     this.state.threads[item.message.rootMessageId] = {
       threadId,
@@ -290,6 +447,7 @@ export class Worker {
     return {
       handle,
       activity: `${project?.name ?? thread.title ?? "Existing task"}: ${item.message.text.slice(0, 160)}`,
+      canSteer: !desktopAccepted,
     };
   }
 
@@ -333,6 +491,18 @@ export class Worker {
     );
   }
 
+  private async findModels(item: WorkItem): Promise<void> {
+    const models = await this.options.appServer.listModels();
+    await this.complete(
+      item,
+      "completed",
+      JSON.stringify({
+        returned: models.length,
+        models,
+      }),
+    );
+  }
+
   private projectForCwd(cwd: string): ProjectConfig | undefined {
     const threadPath = resolve(cwd);
     return this.projects.find((project) => {
@@ -351,6 +521,10 @@ export class Worker {
     status: string,
     text: string,
   ): Promise<void> {
+    const active = this.active;
+    if (active?.item.message.id === item.message.id && active.leaseTimer) {
+      clearTimeout(active.leaseTimer);
+    }
     const binding = this.state.threads[item.message.rootMessageId];
     const requesterAgentId =
       binding?.requesterAgentId ?? item.message.fromAgentId;
@@ -363,7 +537,8 @@ export class Worker {
           binding?.threadId ?? item.message.targetThreadId ?? null,
         text,
         attachments: [],
-        failed: status !== "completed",
+        failed: status === "failed",
+        cancelled: status === "cancelled",
       });
     } catch (error) {
       console.error("[worker] result delivery failed; retrying", error);
@@ -376,8 +551,101 @@ export class Worker {
     await this.releaseTemporaryFiles(item.message.id);
     await this.removePending(item.message.id);
     if (this.active?.item.message.id === item.message.id) this.active = undefined;
+    this.settledMessages.add(item.message.id);
     await this.sendHeartbeat();
     void this.runNext();
+  }
+
+  private async receiveCancellation(message: Message): Promise<void> {
+    await this.options.client.acknowledge(message.id);
+    const targetId = message.replyTo;
+    if (!targetId) return;
+    this.settledMessages.add(targetId);
+    this.queue = this.queue.filter((item) => item.message.id !== targetId);
+    await this.removePending(targetId);
+    const active = this.active;
+    if (active?.item.message.id === targetId) {
+      if (active.leaseTimer) clearTimeout(active.leaseTimer);
+      try {
+        if (this.options.desktopFollower && !active.canSteer) {
+          await this.options.desktopFollower.interrupt(active.handle);
+        } else {
+          await this.options.appServer.interrupt(active.handle);
+        }
+      } catch (error) {
+        console.error("[worker] task interrupt failed", error);
+      }
+      await this.releaseTemporaryFiles(targetId);
+      this.active = undefined;
+      await this.sendHeartbeat();
+      void this.runNext();
+    }
+  }
+
+  private armLease(item: WorkItem, handle: TurnHandle): NodeJS.Timeout | undefined {
+    const expiresAt = item.message.leaseExpiresAt;
+    if (!expiresAt) return undefined;
+    const remaining = Math.max(0, Date.parse(expiresAt) - Date.now());
+    return setTimeout(
+      () => void this.expireActive(item, handle),
+      Math.min(remaining, 2_147_483_647),
+    );
+  }
+
+  private async expireActive(
+    item: WorkItem,
+    handle: TurnHandle,
+  ): Promise<void> {
+    if (this.active?.item.message.id !== item.message.id) return;
+    this.settledMessages.add(item.message.id);
+    try {
+      if (this.options.desktopFollower && !this.active.canSteer) {
+        await this.options.desktopFollower.interrupt(handle);
+      } else {
+        await this.options.appServer.interrupt(handle);
+      }
+    } catch (error) {
+      console.error("[worker] lease interrupt failed", error);
+    }
+    await this.complete(
+      item,
+      "failed",
+      `Request lease expired at ${item.message.leaseExpiresAt}`,
+    );
+  }
+
+  private turnOptions(message: Message): TurnOptions {
+    return {
+      ...(message.model ? { model: message.model } : {}),
+      ...(message.reasoningEffort
+        ? { reasoningEffort: message.reasoningEffort }
+        : {}),
+    };
+  }
+
+  private async validateModelSelection(message: Message): Promise<void> {
+    if (!message.model && !message.reasoningEffort) return;
+    const models = await this.options.appServer.listModels();
+    const selected = message.model
+      ? models.find(
+          (candidate) =>
+            candidate.id === message.model || candidate.model === message.model,
+        )
+      : models.find((candidate) => candidate.isDefault);
+    if (message.model && !selected) {
+      throw new Error(`Model is unavailable on this agent: ${message.model}`);
+    }
+    if (
+      message.reasoningEffort &&
+      selected &&
+      !selected.supportedReasoningEfforts.some(
+        (effort) => effort.reasoningEffort === message.reasoningEffort,
+      )
+    ) {
+      throw new Error(
+        `Reasoning effort ${message.reasoningEffort} is unavailable for ${selected.id}`,
+      );
+    }
   }
 
   private async removePending(messageId: string): Promise<void> {
@@ -495,7 +763,7 @@ export class Worker {
         null,
       currentActivity: this.active?.activity ?? null,
       projects: descriptors,
-      workerVersion: "0.1.7",
+      workerVersion: "0.1.18",
     });
   }
 }

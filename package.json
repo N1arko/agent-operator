@@ -1,6 +1,6 @@
 {
   "name": "agent-operator",
-  "version": "0.1.7",
+  "version": "0.1.18",
   "private": true,
   "type": "module",
   "engines": {
@@ -9,7 +9,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "eslint .",
+    "lint": "eslint . && node scripts/spec-lint.mjs",
+    "spec:lint": "node scripts/spec-lint.mjs",
     "test": "pnpm build && node --test dist/test/**/*.test.js",
     "coordinator": "node dist/src/coordinator/main.js",
     "worker": "node dist/src/worker/main.js",

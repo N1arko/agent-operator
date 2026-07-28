@@ -1,0 +1,6 @@
+handle: @yourhandle
+name: Your Name
+role: developer
+
+# Скопируйте файл в `specs/.me` и задайте локальную идентичность исполнителя.
+# `specs/.me` не добавляется в Git.

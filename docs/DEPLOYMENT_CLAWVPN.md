@@ -87,7 +87,7 @@ Coordinator должен сохранять один активный проце
 │   ├── backups/
 │   ├── compose.yaml
 │   └── Caddyfile
-└── release/agent-operator-worker-0.1.7.zip
+└── release/agent-operator-worker-0.1.18.zip
 ```
 
 ## 6. Контейнеры
@@ -153,9 +153,9 @@ Coordinator доступен внутри Docker network на `8787`. В инт�
 
 ## 9. Backup
 
-Скрипт `deploy/backup.sh` создаёт согласованный SQLite snapshot и хранит
-ежедневные копии семь дней. Перед production-эксплуатацией остаётся добавить
-его в системное расписание.
+Скрипт `deploy/backup.sh` создаёт согласованный SQLite snapshot, проверяет его
+через `PRAGMA integrity_check` и хранит ежедневные копии семь дней. Systemd
+timer `agent-operator-backup.timer` запускает скрипт ежедневно.
 
 ## 10. Фактическая проверка
 
@@ -200,6 +200,20 @@ Coordinator доступен внутри Docker network на `8787`. В инт�
 - реальный temporary file E2E Mac → Windows передал файл в существующую
   задачу, получил точное содержимое и завершился с пустыми таблицей
   `temporary_files` и каталогом файлов coordinator.
+- coordinator `0.1.8` и Windows bundle `0.1.8` опубликованы; health и checksum
+  onboarding package проверены;
+- Windows-worker `0.1.7` оставлен запущенным до контролируемого обновления:
+  восстановленный старый turn сохраняет `busy` и требует отдельного решения
+  по pending queue.
+- coordinator и Mac-worker обновлены до `0.1.15`;
+- Windows bundle `0.1.15` опубликован, SHA-256:
+  `f1fe71af1ae4727e722e152b0ebb259474c2a11c0ff0a8402b28f74e86e69268`;
+- перед deployment создан и проверен SQLite snapshot
+  `coordinator-20260728T005531Z.sqlite`;
+- Windows-worker обновлён до `0.1.15` через одноразовую Windows Scheduled Task;
+- контрольный `agent_start` создал задачу
+  `019fa656-f63a-7bb0-98f5-bae1b7691cfd` и вернул
+  `WINDOWS_DESKTOP_START_015_OK`.
 
 ## 11. Готовность
 

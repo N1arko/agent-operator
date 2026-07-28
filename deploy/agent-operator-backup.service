@@ -1,0 +1,8 @@
+[Unit]
+Description=Agent Operator SQLite backup
+After=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/agent-operator/deploy
+ExecStart=/opt/agent-operator/deploy/backup.sh

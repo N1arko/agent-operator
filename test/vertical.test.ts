@@ -13,10 +13,13 @@ import { CoordinatorStore } from "../src/coordinator/store.js";
 import { createCoordinatorApp } from "../src/coordinator/server.js";
 import type { TurnHandle } from "../src/worker/app-server.js";
 import type { LocalThread } from "../src/worker/app-server.js";
+import type { TurnOptions } from "../src/worker/app-server.js";
+import type { ModelDescriptor } from "../src/shared/protocol.js";
 import { CoordinatorClient } from "../src/worker/client.js";
 import { Worker } from "../src/worker/worker.js";
 
 class FakeAppServer {
+  creates: Array<{ cwd: string; title: string }> = [];
   starts: Array<{ cwd: string; prompt: string; title: string }> = [];
   resumes: Array<{
     threadId: string;
@@ -37,6 +40,11 @@ class FakeAppServer {
   private sequence = 0;
   readonly createdThreadId =
     "019fa0b8-1abc-73f0-8126-3f8b6d64466c";
+
+  createThread(cwd: string, title: string): Promise<string> {
+    this.creates.push({ cwd, title });
+    return Promise.resolve(this.createdThreadId);
+  }
 
   startThread(
     cwd: string,
@@ -70,8 +78,37 @@ class FakeAppServer {
     return Promise.resolve(this.externalThread);
   }
 
+  waitForTurn(
+    threadId: string,
+    turnId: string,
+  ): Promise<{ status: string; text: string }> {
+    assert.equal(threadId, this.externalThread.threadId);
+    assert.ok(turnId);
+    return Promise.resolve({ status: "completed", text: "observed" });
+  }
+
+  listModels(): Promise<ModelDescriptor[]> {
+    return Promise.resolve([
+      {
+        id: "test-model",
+        model: "test-model",
+        displayName: "Test model",
+        isDefault: true,
+        defaultReasoningEffort: "medium",
+        supportedReasoningEfforts: [
+          { reasoningEffort: "low", description: "Fast" },
+          { reasoningEffort: "medium", description: "Balanced" },
+        ],
+      },
+    ]);
+  }
+
   steer(): Promise<boolean> {
     return Promise.resolve(false);
+  }
+
+  interrupt(): Promise<void> {
+    return Promise.resolve();
   }
 
   stop(): Promise<void> {
@@ -178,6 +215,46 @@ describe("local vertical scenario", () => {
     const baseUrl = `http://127.0.0.1:${address.port}`;
 
     const fakeAppServer = new FakeAppServer();
+    const desktopResumes: Array<{ threadId: string; prompt: string }> = [];
+    const desktopOptions: TurnOptions[] = [];
+    const desktopInterrupts: TurnHandle[] = [];
+    const desktopFollower = {
+      readThread(threadId: string): Promise<LocalThread> {
+        if (threadId === fakeAppServer.createdThreadId) {
+          return Promise.resolve({
+            ...fakeAppServer.externalThread,
+            threadId,
+            title: "Created task",
+            cwd: directory,
+            status: "idle",
+          });
+        }
+        assert.equal(threadId, fakeAppServer.externalThread.threadId);
+        return Promise.resolve(fakeAppServer.externalThread);
+      },
+      resumeThread(
+        threadId: string,
+        prompt: string,
+        options: TurnOptions = {},
+      ): Promise<TurnHandle> {
+        desktopResumes.push({ threadId, prompt });
+        desktopOptions.push(options);
+        return Promise.resolve({
+          threadId,
+          turnId: `desktop-turn-${desktopResumes.length}`,
+          completed: new Promise((resolve) =>
+            setTimeout(
+              () => resolve({ status: "completed", text: `done: ${prompt}` }),
+              prompt === "wait for cancellation" ? 5_000 : 30,
+            ),
+          ),
+        });
+      },
+      interrupt(handle: TurnHandle): Promise<void> {
+        desktopInterrupts.push(handle);
+        return Promise.resolve();
+      },
+    };
     const worker = new Worker({
       agentName: "Mac Codex",
       platform: "macos",
@@ -186,6 +263,7 @@ describe("local vertical scenario", () => {
       temporaryDirectory: join(directory, "worker-files"),
       client: new CoordinatorClient(baseUrl, "mac-token-secure-value"),
       appServer: fakeAppServer,
+      desktopFollower,
       heartbeatMs: 25,
     });
     workers.push(worker);
@@ -226,6 +304,8 @@ describe("local vertical scenario", () => {
         agentId: "mac",
         projectId: "local-project",
         message: "first",
+        model: "test-model",
+        reasoningEffort: "medium",
         attachments: [
           {
             type: "git_file",
@@ -257,11 +337,11 @@ describe("local vertical scenario", () => {
       firstOutput.messages[0].targetThreadId,
       fakeAppServer.createdThreadId,
     );
-    assert.match(fakeAppServer.starts[0]?.prompt ?? "", /docs\/shared\.md/);
-    assert.match(fakeAppServer.starts[0]?.prompt ?? "", /git show/);
-    assert.match(fakeAppServer.starts[0]?.prompt ?? "", /draft\.docx/);
+    assert.match(desktopResumes[0]?.prompt ?? "", /docs\/shared\.md/);
+    assert.match(desktopResumes[0]?.prompt ?? "", /git show/);
+    assert.match(desktopResumes[0]?.prompt ?? "", /draft\.docx/);
     assert.match(
-      fakeAppServer.starts[0]?.prompt ?? "",
+      desktopResumes[0]?.prompt ?? "",
       /worker-files/,
     );
     assert.equal(store.getTemporaryFile(temporaryAttachment.fileId), null);
@@ -270,9 +350,15 @@ describe("local vertical scenario", () => {
       [],
     );
     assert.match(
-      fakeAppServer.starts[0]?.title ?? "",
+      fakeAppServer.creates[0]?.title ?? "",
       /^\[Agent Operator\] first$/,
     );
+    assert.equal(fakeAppServer.starts.length, 0);
+    assert.equal(desktopResumes[0]?.threadId, fakeAppServer.createdThreadId);
+    assert.deepEqual(desktopOptions[0], {
+      model: "test-model",
+      reasoningEffort: "medium",
+    });
 
     await client.callTool({
       name: "agent_send",
@@ -290,10 +376,35 @@ describe("local vertical scenario", () => {
       nextCursor: number;
     };
     assert.equal(secondOutput.messages[0]?.text, "done: follow-up");
-    assert.equal(fakeAppServer.starts.length, 1);
+    assert.equal(fakeAppServer.starts.length, 0);
     assert.equal(
-      fakeAppServer.resumes[0]?.threadId,
+      desktopResumes[1]?.threadId,
       fakeAppServer.createdThreadId,
+    );
+
+    await client.callTool({
+      name: "agent_models",
+      arguments: { agentId: "mac" },
+    });
+    const modelsWait = await client.callTool({
+      name: "agent_wait",
+      arguments: {
+        afterCursor: secondOutput.nextCursor,
+        timeoutMs: 5_000,
+      },
+    });
+    const modelsOutput = modelsWait.structuredContent as {
+      messages: Array<{ text: string }>;
+      nextCursor: number;
+    };
+    const modelsResult = JSON.parse(modelsOutput.messages[0]?.text ?? "{}") as {
+      models: Array<{ id: string; defaultReasoningEffort: string }>;
+    };
+    assert.ok(modelsResult.models[0]);
+    assert.equal(modelsResult.models[0].id, "test-model");
+    assert.equal(
+      modelsResult.models[0].defaultReasoningEffort,
+      "medium",
     );
 
     await client.callTool({
@@ -303,7 +414,7 @@ describe("local vertical scenario", () => {
     const searchWait = await client.callTool({
       name: "agent_wait",
       arguments: {
-        afterCursor: secondOutput.nextCursor,
+        afterCursor: modelsOutput.nextCursor,
         timeoutMs: 5_000,
       },
     });
@@ -358,9 +469,8 @@ describe("local vertical scenario", () => {
       externalOutput.messages[0].rootMessageId,
       externalMessage.id,
     );
-    assert.deepEqual(fakeAppServer.resumes.at(-1), {
+    assert.deepEqual(desktopResumes.at(-1), {
       threadId: fakeAppServer.externalThread.threadId,
-      cwd: undefined,
       prompt: "report status",
     });
 
@@ -382,12 +492,56 @@ describe("local vertical scenario", () => {
     });
     const activeOutput = activeWait.structuredContent as {
       messages: Array<{ text: string; status: string }>;
+      nextCursor: number;
     };
     const activeResult = activeOutput.messages[0];
     assert.ok(activeResult);
     assert.equal(activeResult.status, "failed");
     assert.match(activeResult.text, /is active/);
-    assert.equal(fakeAppServer.resumes.length, 2);
+    assert.equal(fakeAppServer.resumes.length, 0);
+    assert.equal(desktopResumes.length, 3);
+
+    fakeAppServer.externalThread.status = "idle";
+    const cancellable = await client.callTool({
+      name: "agent_thread_send",
+      arguments: {
+        agentId: "mac",
+        threadId: fakeAppServer.externalThread.threadId,
+        message: "wait for cancellation",
+      },
+    });
+    const cancellableMessage = cancellable.structuredContent as { id: string };
+    const deliveryDeadline = Date.now() + 2_000;
+    while (
+      store.getMessage(cancellableMessage.id).status !== "delivered" &&
+      Date.now() < deliveryDeadline
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    assert.equal(store.getMessage(cancellableMessage.id).status, "delivered");
+    await client.callTool({
+      name: "agent_cancel",
+      arguments: { messageId: cancellableMessage.id },
+    });
+    const cancellationWait = await client.callTool({
+      name: "agent_wait",
+      arguments: {
+        afterCursor: activeOutput.nextCursor,
+        timeoutMs: 5_000,
+      },
+    });
+    const cancellationOutput = cancellationWait.structuredContent as {
+      messages: Array<{ status: string; replyTo: string }>;
+    };
+    assert.ok(cancellationOutput.messages[0]);
+    assert.equal(cancellationOutput.messages[0].status, "cancelled");
+    assert.equal(cancellationOutput.messages[0].replyTo, cancellableMessage.id);
+    const interruptDeadline = Date.now() + 2_000;
+    while (desktopInterrupts.length === 0 && Date.now() < interruptDeadline) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    assert.equal(desktopInterrupts.length, 1);
+    assert.equal(store.countOutstandingRequests("mac"), 0);
 
     await client.close();
     await worker.stop();

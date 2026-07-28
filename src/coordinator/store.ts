@@ -24,6 +24,9 @@ type MessageRow = {
   target_thread_id: string | null;
   text: string;
   attachments_json: string;
+  model: string | null;
+  reasoning_effort: string | null;
+  lease_expires_at: string | null;
   status: Message["status"];
   created_at: string;
 };
@@ -67,7 +70,10 @@ export type TemporaryFileRecord = {
 export class CoordinatorStore {
   readonly db: DatabaseSync;
 
-  constructor(path: string) {
+  constructor(
+    path: string,
+    private readonly requestLeaseMs = 2 * 60 * 60 * 1_000,
+  ) {
     if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
     this.db = new DatabaseSync(path);
     this.db.exec("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;");
@@ -108,6 +114,9 @@ export class CoordinatorStore {
         target_thread_id TEXT,
         text TEXT NOT NULL,
         attachments_json TEXT NOT NULL,
+        model TEXT,
+        reasoning_effort TEXT,
+        lease_expires_at TEXT,
         status TEXT NOT NULL,
         created_at TEXT NOT NULL
       );
@@ -134,6 +143,26 @@ export class CoordinatorStore {
     if (!messageColumns.some((column) => column.name === "target_thread_id")) {
       this.db.exec("ALTER TABLE messages ADD COLUMN target_thread_id TEXT");
     }
+    if (!messageColumns.some((column) => column.name === "model")) {
+      this.db.exec("ALTER TABLE messages ADD COLUMN model TEXT");
+    }
+    if (!messageColumns.some((column) => column.name === "reasoning_effort")) {
+      this.db.exec("ALTER TABLE messages ADD COLUMN reasoning_effort TEXT");
+    }
+    if (!messageColumns.some((column) => column.name === "lease_expires_at")) {
+      this.db.exec("ALTER TABLE messages ADD COLUMN lease_expires_at TEXT");
+    }
+    this.db.exec(`
+      UPDATE messages
+      SET lease_expires_at = strftime(
+        '%Y-%m-%dT%H:%M:%fZ',
+        created_at,
+        '+2 hours'
+      )
+      WHERE lease_expires_at IS NULL
+        AND kind IN ('start', 'send', 'threads_query', 'thread_send', 'models_query')
+        AND status IN ('queued', 'delivered')
+    `);
     const temporaryFileColumns = this.db
       .prepare("PRAGMA table_info(temporary_files)")
       .all() as Array<{ name: string }>;
@@ -164,6 +193,12 @@ export class CoordinatorStore {
     this.db.exec(`
       UPDATE messages
       SET status = CASE
+        WHEN EXISTS (
+          SELECT 1 FROM messages AS result
+          WHERE result.kind = 'result'
+            AND result.reply_to = messages.id
+            AND result.status = 'cancelled'
+        ) THEN 'cancelled'
         WHEN EXISTS (
           SELECT 1 FROM messages AS result
           WHERE result.kind = 'result'
@@ -279,17 +314,32 @@ export class CoordinatorStore {
     targetThreadId?: string | null;
     text: string;
     attachments?: Attachment[];
+    model?: string | null;
+    reasoningEffort?: string | null;
+    leaseExpiresAt?: string | null;
     status?: Message["status"];
   }): Message {
     const id = randomUUID();
     const rootMessageId = input.rootMessageId ?? id;
     const createdAt = new Date().toISOString();
+    const leased =
+      input.kind === "start" ||
+      input.kind === "send" ||
+      input.kind === "threads_query" ||
+      input.kind === "thread_send" ||
+      input.kind === "models_query";
+    const leaseExpiresAt =
+      input.leaseExpiresAt ??
+      (leased
+        ? new Date(Date.parse(createdAt) + this.requestLeaseMs).toISOString()
+        : null);
     this.db
       .prepare(`
         INSERT INTO messages (
           id, kind, from_agent_id, to_agent_id, root_message_id, reply_to,
-          project_id, target_thread_id, text, attachments_json, status, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          project_id, target_thread_id, text, attachments_json, model,
+          reasoning_effort, lease_expires_at, status, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
       .run(
         id,
@@ -302,6 +352,9 @@ export class CoordinatorStore {
         input.targetThreadId ?? null,
         input.text,
         JSON.stringify(input.attachments ?? []),
+        input.model ?? null,
+        input.reasoningEffort ?? null,
+        leaseExpiresAt,
         input.status ?? "queued",
         createdAt,
       );
@@ -317,6 +370,7 @@ export class CoordinatorStore {
   }
 
   listMessages(agentId: string, afterCursor = 0): Message[] {
+    this.expireRequests();
     const rows = this.db
       .prepare(
         "SELECT * FROM messages WHERE to_agent_id = ? AND seq > ? ORDER BY seq LIMIT 100",
@@ -326,6 +380,7 @@ export class CoordinatorStore {
   }
 
   listQueuedMessages(agentId: string, afterCursor = 0): Message[] {
+    this.expireRequests();
     const rows = this.db
       .prepare(
         `SELECT * FROM messages
@@ -337,11 +392,12 @@ export class CoordinatorStore {
   }
 
   countOutstandingRequests(agentId: string): number {
+    this.expireRequests();
     const row = this.db
       .prepare(
         `SELECT COUNT(*) AS count FROM messages
          WHERE to_agent_id = ?
-           AND kind != 'result'
+           AND kind IN ('start', 'send', 'threads_query', 'thread_send', 'models_query')
            AND status IN ('queued', 'delivered')`,
       )
       .get(agentId) as { count: number };
@@ -367,13 +423,108 @@ export class CoordinatorStore {
     return row ? this.mapMessage(row) : null;
   }
 
-  completeMessage(messageId: string, failed: boolean): void {
+  completeMessage(
+    messageId: string,
+    status: "completed" | "failed" | "cancelled",
+  ): void {
     this.db
       .prepare(
         `UPDATE messages SET status = ?
          WHERE id = ? AND status IN ('queued', 'delivered')`,
       )
-      .run(failed ? "failed" : "completed", messageId);
+      .run(status, messageId);
+  }
+
+  expireRequests(now = new Date().toISOString()): Message[] {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM messages
+         WHERE kind IN ('start', 'send', 'threads_query', 'thread_send', 'models_query')
+           AND status IN ('queued', 'delivered')
+           AND lease_expires_at IS NOT NULL
+           AND lease_expires_at <= ?
+         ORDER BY seq`,
+      )
+      .all(now) as unknown as MessageRow[];
+    const results: Message[] = [];
+    for (const row of rows) {
+      const request = this.mapMessage(row);
+      const changed = this.db
+        .prepare(
+          `UPDATE messages SET status = 'failed'
+           WHERE id = ? AND status IN ('queued', 'delivered')`,
+        )
+        .run(request.id);
+      if (changed.changes === 0) continue;
+      const existing = this.findResult(request.toAgentId, request.id);
+      results.push(
+        existing ??
+          this.createMessage({
+            kind: "result",
+            fromAgentId: request.toAgentId,
+            toAgentId: request.fromAgentId,
+            rootMessageId: request.rootMessageId,
+            replyTo: request.id,
+            targetThreadId: request.targetThreadId,
+            text: `Request lease expired at ${request.leaseExpiresAt}`,
+            status: "failed",
+          }),
+      );
+    }
+    return results;
+  }
+
+  cancelRequest(
+    messageId: string,
+    callerAgentId: string,
+  ): { request: Message; result: Message; cancellation: Message | null } {
+    const request = this.getMessage(messageId);
+    if (
+      request.kind === "result" ||
+      request.kind === "cancel" ||
+      request.kind === "threads_query" ||
+      request.kind === "models_query"
+    ) {
+      throw new Error(`Message ${messageId} is not a cancellable task`);
+    }
+    if (request.fromAgentId !== callerAgentId) {
+      throw new Error("Only the requesting agent can cancel this task");
+    }
+    const existingResult = this.findResult(request.toAgentId, request.id);
+    if (request.status === "completed" || request.status === "failed") {
+      if (!existingResult) throw new Error(`Task ${messageId} is already finished`);
+      return { request, result: existingResult, cancellation: null };
+    }
+    if (request.status === "cancelled" && existingResult) {
+      return { request, result: existingResult, cancellation: null };
+    }
+    this.completeMessage(request.id, "cancelled");
+    const result =
+      existingResult ??
+      this.createMessage({
+        kind: "result",
+        fromAgentId: request.toAgentId,
+        toAgentId: request.fromAgentId,
+        rootMessageId: request.rootMessageId,
+        replyTo: request.id,
+        targetThreadId: request.targetThreadId,
+        text: "Task cancelled by the requesting agent",
+        status: "cancelled",
+      });
+    const cancellation = this.createMessage({
+      kind: "cancel",
+      fromAgentId: callerAgentId,
+      toAgentId: request.toAgentId,
+      rootMessageId: request.rootMessageId,
+      replyTo: request.id,
+      targetThreadId: request.targetThreadId,
+      text: "cancel",
+    });
+    return {
+      request: this.getMessage(request.id),
+      result,
+      cancellation,
+    };
   }
 
   createTemporaryFile(input: {
@@ -520,6 +671,9 @@ export class CoordinatorStore {
       targetThreadId: row.target_thread_id,
       text: row.text,
       attachments: JSON.parse(row.attachments_json) as Attachment[],
+      model: row.model,
+      reasoningEffort: row.reasoning_effort,
+      leaseExpiresAt: row.lease_expires_at,
       status: row.status,
       createdAt: row.created_at,
     };

@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod/v4";
 import {
   AttachmentSchema,
+  ReasoningEffortSchema,
   type Attachment,
   type TemporaryFileAttachment,
 } from "../shared/protocol.js";
@@ -61,13 +62,18 @@ const validateTemporaryAttachments = (
   );
 };
 
+const modelSelectionSchema = {
+  model: z.string().trim().min(1).max(200).optional(),
+  reasoningEffort: ReasoningEffortSchema.optional(),
+};
+
 export const createMcpServer = (
   store: CoordinatorStore,
   callerAgentId: string,
 ): McpServer => {
   const server = new McpServer({
     name: "agent-operator",
-    version: "0.1.7",
+    version: "0.1.18",
   });
 
   server.registerTool(
@@ -122,9 +128,17 @@ export const createMcpServer = (
         projectId: z.string().min(1),
         message: z.string().min(1),
         attachments: z.array(AttachmentSchema).max(20).default([]),
+        ...modelSelectionSchema,
       },
     },
-    ({ agentId, projectId, message, attachments }) => {
+    ({
+      agentId,
+      projectId,
+      message,
+      attachments,
+      model,
+      reasoningEffort,
+    }) => {
       if (!store.getAgent(agentId)) throw new Error(`Unknown agent: ${agentId}`);
       const project = store
         .listProjects(agentId)
@@ -144,6 +158,32 @@ export const createMcpServer = (
         projectId,
         text: message,
         attachments,
+        model,
+        reasoningEffort,
+      });
+      return Promise.resolve(response(queued));
+    },
+  );
+
+  server.registerTool(
+    "agent_models",
+    {
+      title: "List models available on an agent",
+      description:
+        "Queue bounded local discovery of the Codex models and reasoning effort levels available on a selected agent. Read the result through agent_wait.",
+      inputSchema: {
+        agentId: z.string().min(1),
+      },
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    ({ agentId }) => {
+      if (!store.getAgent(agentId)) throw new Error(`Unknown agent: ${agentId}`);
+      ensureQueueCapacity(store, agentId);
+      const queued = store.createMessage({
+        kind: "models_query",
+        fromAgentId: callerAgentId,
+        toAgentId: agentId,
+        text: "{}",
       });
       return Promise.resolve(response(queued));
     },
@@ -186,9 +226,17 @@ export const createMcpServer = (
         threadId: z.uuid(),
         message: z.string().min(1),
         attachments: z.array(AttachmentSchema).max(20).default([]),
+        ...modelSelectionSchema,
       },
     },
-    ({ agentId, threadId, message, attachments }) => {
+    ({
+      agentId,
+      threadId,
+      message,
+      attachments,
+      model,
+      reasoningEffort,
+    }) => {
       if (!store.getAgent(agentId)) throw new Error(`Unknown agent: ${agentId}`);
       ensureQueueCapacity(store, agentId);
       validateTemporaryAttachments(
@@ -204,6 +252,8 @@ export const createMcpServer = (
         targetThreadId: threadId,
         text: message,
         attachments,
+        model,
+        reasoningEffort,
       });
       return Promise.resolve(response(queued));
     },
@@ -219,9 +269,10 @@ export const createMcpServer = (
         replyTo: z.uuid(),
         message: z.string().min(1),
         attachments: z.array(AttachmentSchema).max(20).default([]),
+        ...modelSelectionSchema,
       },
     },
-    ({ replyTo, message, attachments }) => {
+    ({ replyTo, message, attachments, model, reasoningEffort }) => {
       const previous = store.getMessage(replyTo);
       if (
         previous.fromAgentId !== callerAgentId &&
@@ -249,9 +300,25 @@ export const createMcpServer = (
         projectId: previous.projectId,
         text: message,
         attachments,
+        model,
+        reasoningEffort,
       });
       return Promise.resolve(response(queued));
     },
+  );
+
+  server.registerTool(
+    "agent_cancel",
+    {
+      title: "Cancel an agent task",
+      description:
+        "Cancel a queued or running task previously requested by this agent. A running Desktop turn is interrupted by its worker.",
+      inputSchema: {
+        messageId: z.uuid(),
+      },
+    },
+    ({ messageId }) =>
+      Promise.resolve(response(store.cancelRequest(messageId, callerAgentId))),
   );
 
   server.registerTool(

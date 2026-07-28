@@ -45,6 +45,8 @@ Production coordinator размещается на SSH-host `clawvpn`.
 - хранить временные файлы и удалять их по TTL.
 
 Coordinator не управляет Codex thread и не читает локальные проекты.
+Coordinator назначает исполняемым сообщениям конечный lease, фиксирует
+`cancelled` отдельно от `failed` и освобождает backlog после истечения срока.
 
 ## 4. Worker
 
@@ -231,6 +233,14 @@ created_at
 thread в выбранном проекте. Занятый агент сохраняет запуск в очереди.
 Coordinator принимает до трёх незавершённых запросов на одного worker.
 `attachments` принимает до 20 Git-файлов.
+Опциональные `model` и `reasoningEffort` проверяются принимающим worker по
+локальному каталогу Codex.
+
+### `agent_models`
+
+Ставит bounded-запрос `model/list` на выбранный worker. Результат через
+`agent_wait` содержит доступные модели, модель по умолчанию и поддерживаемые
+reasoning efforts.
 
 ### `agent_threads`
 
@@ -290,6 +300,13 @@ turn. Если агент занят другим thread, сообщение о�
 
 Возвращает новые сообщения и актуальный status. Timeout ограничен серверной
 конфигурацией.
+
+### `agent_cancel`
+
+Принимает точный ID запроса исходного отправителя. Coordinator переводит
+запрос в `cancelled`, создаёт один result и передаёт worker команду остановки.
+Для активного Desktop-owned turn worker вызывает
+`thread-follower-interrupt-turn`.
 
 ## 7. Worker API
 
@@ -380,15 +397,32 @@ Worker находит mapping и продолжает соответствующ
 2. Worker удаляет `cwd` из результата и добавляет project descriptor при
    локальном совпадении.
 3. `agent_thread_send` проверяет точный ID через `thread/read` без turns.
-4. Worker вызывает `thread/resume` по ID без замены `cwd`.
-5. Worker запускает turn и открывает `codex://threads/<threadId>` в ChatGPT
-   Desktop.
-6. Завершение turn возвращается обычным result-сообщением с `threadId`.
+4. На Windows worker подключается к локальному Desktop follower IPC.
+5. Worker открывает `codex://threads/<threadId>` и отправляет
+   `thread-follower-start-turn`.
+6. Локальный host Desktop выполняет turn и публикует поток в открытом
+   интерфейсе.
+7. Read-only app-server ждёт сохранённый успешный turn и извлекает финальный
+   `agentMessage`.
+8. Завершение возвращается обычным result-сообщением с `threadId`.
 
-Deep link не синхронизирует поток turn между отдельным app-server worker и
-app-server ChatGPT Desktop. Этот путь считается headless-выполнением с
-навигацией. Для визуального E2E нужен Desktop-owned turn; решение исследуется в
-ADR-0008.
+После принятия Desktop-команды fallback не применяется, что исключает
+дублирование turn. Если Desktop IPC недоступен до принятия команды, worker
+использует headless app-server и открывает deep link. Решение и Windows E2E
+зафиксированы в ADR-0010 и `docs/E2E_WINDOWS_DESKTOP_0.1.14.md`.
+
+### Новая проектная задача в Desktop
+
+Для `agent_start` worker сначала создаёт пустую именованную задачу через
+app-server с `cwd` выбранного проекта. Первый prompt передаётся владельцу
+Desktop через тот же `thread-follower-start-turn`, который используется при
+продолжении. macOS принимает IPC через `$CODEX_HOME/ipc/ipc.sock`, Windows —
+через `\\.\pipe\codex-ipc`.
+
+Такой порядок сохраняет проект и заголовок до запуска, а renderer получает
+первый turn из собственного host. Read-only app-server отвечает только за
+возврат сохранённого результата coordinator. Решение и Mac E2E зафиксированы
+в ADR-0011 и `docs/E2E_MAC_DESKTOP_0.1.15.md`.
 
 Codex App Server поддерживает создание, возобновление, steering, interrupt,
 передачу `cwd` и поток событий. Официальное описание:

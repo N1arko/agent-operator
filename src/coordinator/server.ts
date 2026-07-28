@@ -72,7 +72,7 @@ export const createCoordinatorApp = (
   };
 
   app.get("/health", (_request, response) => {
-    response.json({ status: "ok", version: "0.1.7" });
+    response.json({ status: "ok", version: "0.1.18" });
   });
 
   app.get("/v1/onboarding/worker.zip", authenticate, (_request, response) => {
@@ -84,7 +84,7 @@ export const createCoordinatorApp = (
     response.type("application/zip");
     response.setHeader(
       "content-disposition",
-      'attachment; filename="agent-operator-worker-0.1.7.zip"',
+      'attachment; filename="agent-operator-worker-0.1.18.zip"',
     );
     createReadStream(path).pipe(response);
   });
@@ -92,6 +92,7 @@ export const createCoordinatorApp = (
   app.post("/v1/worker/heartbeat", authenticate, (request, response) => {
     const heartbeat = HeartbeatSchema.parse(request.body);
     store.heartbeat(String(response.locals.agentId), heartbeat);
+    store.expireRequests();
     maybeCleanupTemporaryFiles();
     response.json({ ok: true, serverTime: new Date().toISOString() });
   });
@@ -133,10 +134,14 @@ export const createCoordinatorApp = (
     const agentId = String(response.locals.agentId);
     const existing = store.findResult(agentId, input.replyTo);
     if (existing) {
-      store.completeMessage(input.replyTo, input.failed);
       response.status(200).json(existing);
       return;
     }
+    const resultStatus = input.cancelled
+      ? "cancelled"
+      : input.failed
+        ? "failed"
+        : "completed";
     const result = store.createMessage({
       kind: "result",
       fromAgentId: agentId,
@@ -146,9 +151,9 @@ export const createCoordinatorApp = (
       targetThreadId: input.threadId,
       text: input.text,
       attachments: input.attachments,
-      status: input.failed ? "failed" : "completed",
+      status: resultStatus,
     });
-    store.completeMessage(input.replyTo, input.failed);
+    store.completeMessage(input.replyTo, resultStatus);
     response.status(201).json(result);
   });
 

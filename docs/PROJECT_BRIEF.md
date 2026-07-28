@@ -155,6 +155,7 @@ app-server и локальная модель проектов. При отсу�
 ```text
 queued → delivered → completed
                   ↘ failed
+                  ↘ cancelled
 ```
 
 ## 7. Режимы доставки
@@ -195,12 +196,14 @@ Worker открывает создаваемую или продолжаемую
 Turn запускается до открытия deep link. Worker сохраняет принятый запрос в
 общем state file, поэтому обновление версии и перезапуск процесса продолжают
 локальную очередь. Coordinator ограничивает backlog тремя незавершёнными
-запросами.
+запросами. Каждый исполняемый запрос получает конечный lease. Отправитель
+может остановить запрос через `agent_cancel`, включая активный Desktop-turn.
 
-Текущая реализация выполняет turn в отдельном app-server. Deep link открывает
-задачу и не передаёт ChatGPT Desktop новые события. Наблюдаемое выполнение в
-приложении остаётся обязательным продуктовым требованием и требует
-Desktop-owned runtime.
+Продолжение существующей задачи и первый turn нового `agent_start` выполняются
+через Desktop follower IPC. Prompt, прогресс и итоговый ответ появляются в
+открытом интерфейсе, а read-only app-server получает сохранённый итог для
+coordinator. macOS использует локальный Unix socket, Windows — именованный
+канал.
 
 ### `agent_wait`
 
@@ -282,9 +285,11 @@ agents_list
 agent_status
 agent_projects
 agent_start
+agent_models
 agent_threads
 agent_thread_send
 agent_send
+agent_cancel
 agent_wait
 ```
 
@@ -292,7 +297,9 @@ agent_wait
 возвращает проекты конкретного агента. `agent_start` создаёт свежий thread в
 выбранном проекте. `agent_threads` выполняет bounded-поиск в локальном индексе.
 `agent_thread_send` продолжает задачу по точному ID. `agent_send` продолжает
-связанную работу по `replyTo`.
+связанную работу по `replyTo`. `agent_models` получает локальный список
+моделей и reasoning efforts. `agent_cancel` останавливает запрос по его
+точному ID.
 
 Для пользовательского сценария coordinator подключается как локально
 настроенный MCP в ChatGPT/Codex обоих аккаунтов. Routing skill распознаёт

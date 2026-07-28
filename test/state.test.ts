@@ -49,6 +49,9 @@ test("persists pending worker messages across restarts", async () => {
         targetThreadId: null,
         text: "Inspect",
         attachments: [],
+        model: null,
+        reasoningEffort: null,
+        leaseExpiresAt: "2026-07-28T14:00:00.000Z",
         status: "queued",
         createdAt: new Date(0).toISOString(),
       },
@@ -58,4 +61,43 @@ test("persists pending worker messages across restarts", async () => {
   const restored = await loadState(path);
 
   assert.equal(restored.pendingMessages[0]?.id, messageId);
+});
+
+test("loads pending messages written before model and lease fields existed", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "aop-state-"));
+  directories.push(directory);
+  const path = join(directory, "worker-state.json");
+  const messageId = randomUUID();
+  await writeFile(
+    path,
+    JSON.stringify({
+      cursor: 8,
+      threads: {},
+      pendingMessages: [
+        {
+          id: messageId,
+          cursor: 8,
+          kind: "start",
+          fromAgentId: "mac",
+          toAgentId: "windows",
+          rootMessageId: messageId,
+          replyTo: null,
+          projectId: "local-project",
+          targetThreadId: null,
+          text: "Legacy",
+          attachments: [],
+          status: "delivered",
+          createdAt: new Date(0).toISOString(),
+        },
+      ],
+    }),
+  );
+
+  const restored = await loadState(path);
+  const message = restored.pendingMessages[0];
+
+  assert.ok(message);
+  assert.equal(message.model, null);
+  assert.equal(message.reasoningEffort, null);
+  assert.equal(message.leaseExpiresAt, null);
 });

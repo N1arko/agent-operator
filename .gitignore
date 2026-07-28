@@ -8,6 +8,7 @@ coverage/
 data/
 work/
 *.log
+specs/.me
 release/*.zip
 projects.mac.json
 .env

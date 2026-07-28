@@ -1,9 +1,21 @@
 import { spawn } from "node:child_process";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import * as z from "zod/v4";
 
 const ThreadIdSchema = z.uuid();
+const WINDOWS_CODEX_IPC = String.raw`\\.\pipe\codex-ipc`;
 
 export type DesktopPlatform = "macos" | "windows" | "linux" | "unknown";
+
+export const desktopIpcEndpoint = (
+  platform: DesktopPlatform,
+  codexHome = process.env.CODEX_HOME ?? join(homedir(), ".codex"),
+): string => {
+  if (platform === "macos") return join(codexHome, "ipc", "ipc.sock");
+  if (platform === "windows") return WINDOWS_CODEX_IPC;
+  throw new Error(`ChatGPT Desktop IPC is unsupported on ${platform}`);
+};
 
 export const desktopThreadUrl = (threadId: string): string =>
   `codex://threads/${ThreadIdSchema.parse(threadId)}`;

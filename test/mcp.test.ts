@@ -43,9 +43,11 @@ describe("Agent Operator MCP", () => {
         "agent_status",
         "agent_projects",
         "agent_start",
+        "agent_models",
         "agent_threads",
         "agent_thread_send",
         "agent_send",
+        "agent_cancel",
         "agent_wait",
       ],
     );
@@ -178,6 +180,66 @@ describe("Agent Operator MCP", () => {
     const content = call.content as Array<{ text: string }>;
     assert.match(content[0]?.text ?? "", /Unknown temporary file/);
     assert.equal(store.countOutstandingRequests("mac"), 0);
+
+    await client.close();
+    await server.close();
+  });
+
+  it("preserves model selection and exposes explicit cancellation", async () => {
+    const store = new CoordinatorStore(":memory:");
+    stores.push(store);
+    store.heartbeat("mac", {
+      name: "Mac Codex",
+      platform: "macos",
+      state: "idle",
+      currentProjectId: null,
+      currentActivity: null,
+      projects: [
+        { id: "project-a", name: "Project A", tags: [], available: true },
+      ],
+      workerVersion: "0.1.15",
+    });
+    const server = createMcpServer(store, "windows");
+    const client = new Client({ name: "test", version: "1.0.0" });
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    await Promise.all([
+      server.connect(serverTransport),
+      client.connect(clientTransport),
+    ]);
+
+    const started = await client.callTool({
+      name: "agent_start",
+      arguments: {
+        agentId: "mac",
+        projectId: "project-a",
+        message: "Use selected settings",
+        model: "gpt-test",
+        reasoningEffort: "high",
+      },
+    });
+    const message = started.structuredContent as {
+      id: string;
+      model: string;
+      reasoningEffort: string;
+      leaseExpiresAt: string;
+    };
+    assert.equal(message.model, "gpt-test");
+    assert.equal(message.reasoningEffort, "high");
+    assert.ok(Date.parse(message.leaseExpiresAt) > Date.now());
+
+    const cancelled = await client.callTool({
+      name: "agent_cancel",
+      arguments: { messageId: message.id },
+    });
+    const cancellation = cancelled.structuredContent as {
+      request: { status: string };
+      result: { status: string };
+      cancellation: { kind: string };
+    };
+    assert.equal(cancellation.request.status, "cancelled");
+    assert.equal(cancellation.result.status, "cancelled");
+    assert.equal(cancellation.cancellation.kind, "cancel");
 
     await client.close();
     await server.close();

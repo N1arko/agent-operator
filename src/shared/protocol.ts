@@ -95,9 +95,29 @@ export const MessageKindSchema = z.enum([
   "send",
   "threads_query",
   "thread_send",
+  "models_query",
+  "cancel",
   "result",
 ]);
 export type MessageKind = z.infer<typeof MessageKindSchema>;
+
+export const ReasoningEffortSchema = z.string().trim().min(1).max(32);
+export type ReasoningEffort = z.infer<typeof ReasoningEffortSchema>;
+
+export const ModelDescriptorSchema = z.object({
+  id: z.string().min(1),
+  model: z.string().min(1),
+  displayName: z.string().min(1),
+  isDefault: z.boolean(),
+  defaultReasoningEffort: ReasoningEffortSchema.nullable(),
+  supportedReasoningEfforts: z.array(
+    z.object({
+      reasoningEffort: ReasoningEffortSchema,
+      description: z.string(),
+    }),
+  ),
+});
+export type ModelDescriptor = z.infer<typeof ModelDescriptorSchema>;
 
 export const MessageSchema = z.object({
   id: z.uuid(),
@@ -111,7 +131,16 @@ export const MessageSchema = z.object({
   targetThreadId: z.uuid().nullable(),
   text: z.string(),
   attachments: z.array(AttachmentSchema),
-  status: z.enum(["queued", "delivered", "completed", "failed"]),
+  model: z.string().min(1).nullable().default(null),
+  reasoningEffort: ReasoningEffortSchema.nullable().default(null),
+  leaseExpiresAt: z.iso.datetime().nullable().default(null),
+  status: z.enum([
+    "queued",
+    "delivered",
+    "completed",
+    "failed",
+    "cancelled",
+  ]),
   createdAt: z.string(),
 });
 export type Message = z.infer<typeof MessageSchema>;
@@ -135,6 +164,9 @@ export const PublishResultSchema = z.object({
   text: z.string(),
   attachments: z.array(AttachmentSchema).default([]),
   failed: z.boolean().default(false),
+  cancelled: z.boolean().default(false),
+}).refine((value) => !(value.failed && value.cancelled), {
+  message: "A result cannot be both failed and cancelled",
 });
 
 export const ProjectConfigSchema = z.object({

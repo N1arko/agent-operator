@@ -10,8 +10,17 @@ const tokens = parseTokenMap(requiredEnv("AOP_DEVICE_TOKENS"));
 const allowedHosts = process.env.AOP_ALLOWED_HOSTS?.split(",")
   .map((value) => value.trim())
   .filter(Boolean);
+const requestLeaseMs = Number(
+  process.env.AOP_REQUEST_LEASE_MS ?? 2 * 60 * 60 * 1_000,
+);
+if (!Number.isSafeInteger(requestLeaseMs) || requestLeaseMs < 60_000) {
+  throw new Error("AOP_REQUEST_LEASE_MS must be an integer of at least 60000");
+}
 
-const store = new CoordinatorStore(join(dataDir, "coordinator.sqlite"));
+const store = new CoordinatorStore(
+  join(dataDir, "coordinator.sqlite"),
+  requestLeaseMs,
+);
 const app = createCoordinatorApp(store, {
   host,
   tokens,

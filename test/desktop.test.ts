@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  desktopIpcEndpoint,
   desktopLaunchCommand,
   desktopThreadUrl,
 } from "../src/worker/desktop.js";
@@ -25,7 +26,19 @@ test("uses native URL dispatchers on macOS and Windows", () => {
   });
 });
 
+test("resolves native Desktop IPC endpoints on macOS and Windows", () => {
+  assert.equal(
+    desktopIpcEndpoint("macos", "/tmp/codex-home"),
+    "/tmp/codex-home/ipc/ipc.sock",
+  );
+  assert.equal(
+    desktopIpcEndpoint("windows", "C:\\unused"),
+    String.raw`\\.\pipe\codex-ipc`,
+  );
+});
+
 test("rejects invalid thread IDs and unsupported platforms", () => {
   assert.throws(() => desktopThreadUrl("not-a-thread"));
   assert.throws(() => desktopLaunchCommand("linux", threadId));
+  assert.throws(() => desktopIpcEndpoint("linux"));
 });

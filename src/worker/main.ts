@@ -6,7 +6,8 @@ import { WorkerConfigFileSchema } from "../shared/protocol.js";
 import * as z from "zod/v4";
 import { CodexAppServer } from "./app-server.js";
 import { CoordinatorClient } from "./client.js";
-import { openDesktopThread } from "./desktop.js";
+import { CodexDesktopFollower } from "./desktop-follower.js";
+import { desktopIpcEndpoint, openDesktopThread } from "./desktop.js";
 import { Worker } from "./worker.js";
 
 const platform =
@@ -64,7 +65,7 @@ if (process.argv[2] === "diagnose") {
       currentProjectId: null,
       currentActivity: null,
       projects,
-      workerVersion: "0.1.7",
+      workerVersion: "0.1.18",
     });
     authenticated = true;
   }
@@ -111,6 +112,16 @@ if (process.argv[2] === "diagnose") {
       codexArgs,
       (threadId) => openDesktopThread(platform, threadId),
     ),
+    desktopFollower:
+      platform === "windows" || platform === "macos"
+        ? new CodexDesktopFollower(
+            desktopIpcEndpoint(platform),
+            undefined,
+            undefined,
+            undefined,
+            (threadId) => openDesktopThread(platform, threadId),
+          )
+        : undefined,
   });
 
   const shutdown = (): void => {

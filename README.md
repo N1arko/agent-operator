@@ -28,12 +28,25 @@ VPS выполняет роль mailbox и presence-сервиса: хранит
 
 ## Документы
 
+- [Навигация по спецификациям](specs/README.md)
+- [Каноническая доска работ](specs/BOARD.md)
+- [Карта развития](specs/ROADMAP.md)
 - [Концепция продукта](docs/PROJECT_BRIEF.md)
 - [Архитектурный черновик](docs/ARCHITECTURE.md)
 - [Профиль VPS clawvpn](docs/DEPLOYMENT_CLAWVPN.md)
 - [Checkpoint подключения Windows](docs/CHECKPOINT_WINDOWS.md)
-- [Обновление Windows-worker 0.1.7](docs/UPDATE_WINDOWS_0.1.7.md)
-- [Канбан разработки](KANBAN.md)
+- [Обновление Windows-worker 0.1.14](docs/UPDATE_WINDOWS_0.1.14.md)
+- [Windows Desktop E2E 0.1.14](docs/E2E_WINDOWS_DESKTOP_0.1.14.md)
+- [Обновление Windows-worker 0.1.15](docs/UPDATE_WINDOWS_0.1.15.md)
+- [Обновление Windows-worker 0.1.16](docs/UPDATE_WINDOWS_0.1.16.md)
+- [Обновление Windows-worker 0.1.17](docs/UPDATE_WINDOWS_0.1.17.md)
+- [Обновление Windows-worker 0.1.18](docs/UPDATE_WINDOWS_0.1.18.md)
+- [Инструкция эксплуатации](docs/OPERATIONS.md)
+- [Mac Desktop E2E 0.1.15](docs/E2E_MAC_DESKTOP_0.1.15.md)
+- [Windows Desktop E2E 0.1.15](docs/E2E_WINDOWS_DESKTOP_0.1.15.md)
+- [Release E2E 0.1.16](docs/E2E_RELEASE_0.1.16.md)
+- [Release E2E 0.1.18](docs/E2E_RELEASE_0.1.18.md)
+- [Исторический канбан разработки](KANBAN.md)
 
 ## Статус
 
@@ -66,10 +79,50 @@ MVP прошёл `CP-WIN-01` на реальном Windows-worker:
 result. Временные вложения получают отдельный upload/download-контракт, TTL,
 quota и проверку SHA-256.
 
-Живой Windows E2E подтвердил доставку и выполнение headless turn. Открытая
-задача ChatGPT Desktop не получила его события. Desktop-native выполнение
-зафиксировано в ожидающей карточке AOP-073.
+Версия `0.1.9` подключается к локальному Windows `codex-ipc` и после запуска и
+завершения внешнего turn инвалидирует кеш списка задач и конкретного thread.
+Живой E2E зафиксировал отсутствие перечитывания активной переписки по этим
+событиям.
 
-Подключение Agent Operator как MCP и routing skill к обычным чатам Mac и
-Windows ведётся в AOP-074. До её завершения инженерные E2E используют отдельный
-MCP-клиент из репозитория.
+Версия `0.1.10` добавила запуск существующих Windows-задач через
+`thread-follower-start-turn`. Проверка установленного Desktop уточнила, что
+чтение состояния выполняется из внешнего IPC по broadcast
+`thread-stream-state-changed`.
+
+Версия `0.1.11` использует этот поток для проверки доступности задачи,
+отслеживания прогресса и получения итогового ответа. Prompt и выполнение
+создаются локальным host приложения. Решение описано в ADR-0010.
+
+Живой E2E уточнил, что Desktop не отправляет исходный snapshot уже открытой
+задачи сразу после подключения внешнего клиента. Версия `0.1.12` сразу
+отправляет `thread-follower-start-turn`, а затем собирает snapshot и patches
+запущенного хода.
+
+Живой E2E `0.1.12` показал prompt, прогресс и финальный ответ в открытом
+Desktop. Версия `0.1.13` получает итог для coordinator отдельным read-only
+`thread/read` после принятия Desktop-команды, поэтому завершение не зависит от
+формы renderer patches.
+
+Диагностика `0.1.13` обнаружила переходный пустой `failed` в read-only
+app-server, пока Desktop продолжает тот же ход. Версия `0.1.14` продолжает
+опрос до сохранённого статуса `completed` и финального `agentMessage`.
+Windows E2E подтвердил короткий, 48-секундный и параллельный сценарии без
+дублей; Desktop показывал prompt, прогресс и итоговый ответ без перезапуска.
+
+Версия `0.1.15` создаёт пустую проектную задачу и передаёт её первый turn
+владельцу Codex Desktop. Mac E2E подтвердил появление исходного prompt и
+финального ответа в новой карточке без перезапуска приложения. Windows E2E
+создал одну новую задачу и получил точный completed-result через тот же путь.
+
+Версия `0.1.16` добавляет конечный lease, управляемую отмену Desktop-turn,
+локальное обнаружение моделей и reasoning efforts. Переносимый skill
+`coordinate-agents` направляет запросы обычного чата в Agent Operator.
+
+Версия `0.1.17` сохраняет Desktop follower подключённым до завершения
+удалённого turn. Живой E2E уточнил, что renderer также требует явной
+регистрации follower и загрузки полной истории.
+
+Версия `0.1.18` регистрирует worker как follower до открытия задачи, ждёт
+исходный snapshot и после завершения вызывает
+`thread-follower-load-complete-history`. Пустая карточка заполняется без
+перезапуска приложения.

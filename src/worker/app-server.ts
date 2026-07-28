@@ -1,5 +1,10 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createInterface } from "node:readline";
+import {
+  ModelDescriptorSchema,
+  type ModelDescriptor,
+  type ReasoningEffort,
+} from "../shared/protocol.js";
 
 type JsonObject = Record<string, unknown>;
 type Pending = {
@@ -19,6 +24,11 @@ export type TurnHandle = {
   completed: Promise<{ status: string; text: string }>;
 };
 
+export type TurnOptions = {
+  model?: string;
+  reasoningEffort?: ReasoningEffort;
+};
+
 export type LocalThread = {
   threadId: string;
   title: string | null;
@@ -32,6 +42,8 @@ export type LocalThread = {
 
 const asObject = (value: unknown): JsonObject | null =>
   typeof value === "object" && value !== null ? (value as JsonObject) : null;
+const asString = (value: unknown): string =>
+  typeof value === "string" ? value : "";
 
 const threadStatus = (
   value: unknown,
@@ -62,7 +74,18 @@ const threadSource = (value: unknown): string => {
   return "unknown";
 };
 
-const localThread = (value: unknown): LocalThread => {
+const turnStatusValue = (turn: JsonObject): string => {
+  if (typeof turn.status === "string") return turn.status;
+  const status = asObject(turn.status);
+  if (typeof status?.type === "string") return status.type;
+  if (typeof status?.status === "string") return status.status;
+  return "unknown";
+};
+
+export const successfulTurnStatus = (status: string): boolean =>
+  ["completed", "complete", "done"].includes(status.toLowerCase());
+
+export const parseLocalThread = (value: unknown): LocalThread => {
   const thread = asObject(value);
   if (!thread) throw new Error("Invalid thread response from app-server");
   return {
@@ -154,11 +177,11 @@ export class CodexAppServer {
       Promise.resolve(),
   ) {}
 
-  async startThread(
+  async createThread(
     cwd: string,
-    prompt: string,
     title: string,
-  ): Promise<TurnHandle> {
+    options: TurnOptions = {},
+  ): Promise<string> {
     this.cancelIdleStop();
     await this.ensureStarted();
     try {
@@ -167,11 +190,27 @@ export class CodexAppServer {
         approvalPolicy: "never",
         sandbox: "workspace-write",
         ephemeral: false,
+        ...(options.model ? { model: options.model } : {}),
       });
       const thread = started.thread as JsonObject;
       const threadId = String(thread.id);
       await this.request("thread/name/set", { threadId, name: title });
-      const handle = await this.startTurn(threadId, prompt);
+      return threadId;
+    } catch (error) {
+      this.scheduleIdleStop();
+      throw error;
+    }
+  }
+
+  async startThread(
+    cwd: string,
+    prompt: string,
+    title: string,
+    options: TurnOptions = {},
+  ): Promise<TurnHandle> {
+    const threadId = await this.createThread(cwd, title, options);
+    try {
+      const handle = await this.startTurn(threadId, prompt, options);
       await this.showThread(threadId);
       return handle;
     } catch (error) {
@@ -184,6 +223,7 @@ export class CodexAppServer {
     threadId: string,
     cwd: string | undefined,
     prompt: string,
+    options: TurnOptions = {},
   ): Promise<TurnHandle> {
     this.cancelIdleStop();
     await this.ensureStarted();
@@ -192,7 +232,7 @@ export class CodexAppServer {
         threadId,
         ...(cwd ? { cwd } : {}),
       });
-      const handle = await this.startTurn(threadId, prompt);
+      const handle = await this.startTurn(threadId, prompt, options);
       await this.showThread(threadId);
       return handle;
     } catch (error) {
@@ -214,7 +254,7 @@ export class CodexAppServer {
         sortDirection: "desc",
       });
       const data = Array.isArray(response.data) ? response.data : [];
-      return data.map(localThread);
+      return data.map(parseLocalThread);
     } finally {
       this.scheduleIdleStop();
     }
@@ -228,7 +268,78 @@ export class CodexAppServer {
         threadId,
         includeTurns: false,
       });
-      return localThread(response.thread);
+      return parseLocalThread(response.thread);
+    } finally {
+      this.scheduleIdleStop();
+    }
+  }
+
+  async listModels(): Promise<ModelDescriptor[]> {
+    this.cancelIdleStop();
+    await this.ensureStarted();
+    try {
+      const response = await this.request("model/list", {
+        limit: 100,
+        includeHidden: false,
+      });
+      const models = Array.isArray(response.data) ? response.data : [];
+      return models.map((value) => {
+        const model = asObject(value);
+        const id = asString(model?.id);
+        const modelName = asString(model?.model) || id;
+        return ModelDescriptorSchema.parse({
+          id,
+          model: modelName,
+          displayName: asString(model?.displayName) || modelName,
+          isDefault: model?.isDefault === true,
+          defaultReasoningEffort:
+            typeof model?.defaultReasoningEffort === "string"
+              ? model.defaultReasoningEffort
+              : null,
+          supportedReasoningEfforts: Array.isArray(
+            model?.supportedReasoningEfforts,
+          )
+            ? model.supportedReasoningEfforts
+            : [],
+        });
+      });
+    } finally {
+      this.scheduleIdleStop();
+    }
+  }
+
+  async waitForTurn(
+    threadId: string,
+    turnId: string,
+  ): Promise<{ status: string; text: string }> {
+    this.cancelIdleStop();
+    await this.ensureStarted();
+    const deadline = Date.now() + 24 * 60 * 60 * 1_000;
+    try {
+      while (Date.now() < deadline) {
+        const response = await this.request("thread/read", {
+          threadId,
+          includeTurns: true,
+        });
+        const thread = asObject(response.thread);
+        const turns = Array.isArray(thread?.turns)
+          ? thread.turns
+              .map(asObject)
+              .filter((turn): turn is JsonObject => turn !== null)
+          : [];
+        const turn = turns.find((candidate) => candidate.id === turnId);
+        if (turn) {
+          const status = turnStatusValue(turn);
+          if (successfulTurnStatus(status)) {
+            return {
+              status,
+              text: extractCompletedTurnText(turn, [], threadId, turnId),
+            };
+          }
+        }
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+      throw new Error(`Turn ${turnId} did not complete within 24 hours`);
     } finally {
       this.scheduleIdleStop();
     }
@@ -253,6 +364,19 @@ export class CodexAppServer {
     }
   }
 
+  async interrupt(handle: TurnHandle): Promise<void> {
+    this.cancelIdleStop();
+    await this.ensureStarted();
+    try {
+      await this.request("turn/interrupt", {
+        threadId: handle.threadId,
+        turnId: handle.turnId,
+      });
+    } finally {
+      this.scheduleIdleStop();
+    }
+  }
+
   async stop(): Promise<void> {
     if (this.idleTimer) clearTimeout(this.idleTimer);
     this.idleTimer = null;
@@ -271,11 +395,16 @@ export class CodexAppServer {
   private async startTurn(
     threadId: string,
     prompt: string,
+    options: TurnOptions = {},
   ): Promise<TurnHandle> {
     this.cancelIdleStop();
     const response = await this.request("turn/start", {
       threadId,
       input: [textInput(prompt)],
+      ...(options.model ? { model: options.model } : {}),
+      ...(options.reasoningEffort
+        ? { effort: options.reasoningEffort }
+        : {}),
     });
     const turn = response.turn as JsonObject;
     const turnId = String(turn.id);
@@ -285,7 +414,7 @@ export class CodexAppServer {
         (event.params as JsonObject).threadId === threadId &&
         ((event.params as JsonObject).turn as JsonObject).id === turnId,
       24 * 60 * 60 * 1000,
-    ).then((event) => {
+    ).then(async (event) => {
       const completedTurn = (event.params as JsonObject).turn as JsonObject;
       const text = extractCompletedTurnText(
         completedTurn,
@@ -293,6 +422,7 @@ export class CodexAppServer {
         threadId,
         turnId,
       );
+      await this.showThread(threadId);
       this.scheduleIdleStop();
       return { status: String(completedTurn.status), text };
     });
@@ -330,7 +460,7 @@ export class CodexAppServer {
       clientInfo: {
         name: "agent-operator-worker",
         title: "Agent Operator worker",
-        version: "0.1.7",
+        version: "0.1.18",
       },
       capabilities: {
         experimentalApi: true,
