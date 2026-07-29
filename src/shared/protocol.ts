@@ -97,12 +97,40 @@ export const MessageKindSchema = z.enum([
   "thread_send",
   "models_query",
   "cancel",
+  "update",
   "result",
 ]);
 export type MessageKind = z.infer<typeof MessageKindSchema>;
 
 export const ReasoningEffortSchema = z.string().trim().min(1).max(32);
 export type ReasoningEffort = z.infer<typeof ReasoningEffortSchema>;
+
+// @spec spec://modules/coordinator/FEAT-002-task-coordination#execution-profile-selection
+export const ExecutionProfileSchema = z.enum(["fast", "balanced", "deep"]);
+export type ExecutionProfile = z.infer<typeof ExecutionProfileSchema>;
+
+// @spec spec://modules/coordinator/FEAT-006-progress-updates#data
+export const ProgressPhaseSchema = z.enum([
+  "commentary",
+  "plan",
+  "activity",
+]);
+export type ProgressPhase = z.infer<typeof ProgressPhaseSchema>;
+
+export const ProgressPlanStepSchema = z.object({
+  step: z.string().min(1).max(500),
+  status: z.string().min(1).max(50),
+});
+export type ProgressPlanStep = z.infer<typeof ProgressPlanStepSchema>;
+
+export const ProgressUpdateSchema = z.object({
+  turnId: z.string().min(1),
+  itemId: z.string().min(1),
+  revision: z.number().int().positive(),
+  phase: ProgressPhaseSchema,
+  plan: z.array(ProgressPlanStepSchema).max(50).nullable().default(null),
+});
+export type ProgressUpdate = z.infer<typeof ProgressUpdateSchema>;
 
 export const ModelDescriptorSchema = z.object({
   id: z.string().min(1),
@@ -133,6 +161,11 @@ export const MessageSchema = z.object({
   attachments: z.array(AttachmentSchema),
   model: z.string().min(1).nullable().default(null),
   reasoningEffort: ReasoningEffortSchema.nullable().default(null),
+  executionProfile: ExecutionProfileSchema.nullable().default(null),
+  selectionReason: z.string().max(500).nullable().default(null),
+  idempotencyKey: z.string().min(1).max(200).nullable().default(null),
+  progress: ProgressUpdateSchema.nullable().default(null),
+  isFinal: z.boolean().default(false),
   leaseExpiresAt: z.iso.datetime().nullable().default(null),
   status: z.enum([
     "queued",
@@ -167,6 +200,20 @@ export const PublishResultSchema = z.object({
   cancelled: z.boolean().default(false),
 }).refine((value) => !(value.failed && value.cancelled), {
   message: "A result cannot be both failed and cancelled",
+});
+
+export const PublishUpdateSchema = z.object({
+  rootMessageId: z.uuid(),
+  replyTo: z.uuid(),
+  toAgentId: z.string().min(1),
+  threadId: z.uuid().nullable().default(null),
+  turnId: z.string().min(1),
+  itemId: z.string().min(1),
+  revision: z.number().int().positive(),
+  phase: ProgressPhaseSchema,
+  text: z.string().min(1).max(4_000),
+  plan: z.array(ProgressPlanStepSchema).max(50).nullable().default(null),
+  idempotencyKey: z.string().min(1).max(200),
 });
 
 export const ProjectConfigSchema = z.object({

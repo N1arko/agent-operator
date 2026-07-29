@@ -27,13 +27,32 @@ task, queue, model, and result state.
 4. Preserve the returned root message ID and cursor. Use `agent_wait` in
    bounded intervals to receive the matching result. Report useful progress
    without repeating unchanged snapshots.
+5. Create one caller-stable `idempotencyKey` for each user intent before the
+   delivery call. Reuse that key when the call outcome is unknown. A distinct
+   explicit user intent gets a new key.
 
 ## Models and reasoning
 
-When the user chooses a model or reasoning level, call `agent_models` for the
-target agent and read the result through `agent_wait`. Pass the exact supported
-`model` and `reasoningEffort` to `agent_start`, `agent_send`, or
-`agent_thread_send`. Omit both fields to inherit the receiving Codex settings.
+Choose a stable execution profile before dispatch:
+
+- `fast`: status, fact lookup, short read-only inspection, or an explicitly
+  urgent compact answer.
+- `balanced`: ordinary implementation, analysis, review, and office work.
+- `deep`: architecture, difficult diagnosis, broad migration, or high-risk
+  changes.
+
+An explicit user model or reasoning choice wins. Otherwise call `agent_models`
+once for the target agent, read the current catalog through `agent_wait`, and
+select the smallest sufficient model and reasoning effort for the profile.
+Prefer the recipient default when catalog metadata does not distinguish a
+better balanced choice. Use the highest available reasoning effort only after
+an explicit request or a documented escalation from an insufficient lower
+profile.
+
+Pass the resolved exact `model`, `reasoningEffort`, stable
+`executionProfile`, and a short `selectionReason` to the delivery tool. Model
+generation names never belong in these routing rules. Refresh the catalog when
+validation rejects a previously resolved value.
 
 ## Queue and cancellation
 
@@ -54,5 +73,8 @@ the upload flow unchanged.
   ID, or cursor.
 - Keep local filesystem paths on the owning computer.
 - Do not create several equivalent tasks while waiting for one result.
+- Treat messages with `kind: update` or `isFinal: false` as progress. Continue
+  waiting for the terminal `result` with `isFinal: true`.
+- Choose exactly one of `agent_send` and `agent_thread_send` for one intent.
 - If Agent Operator tools are unavailable in the current chat, state that the
   local MCP integration needs to be loaded before remote work can be sent.

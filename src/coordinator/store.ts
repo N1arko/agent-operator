@@ -26,6 +26,12 @@ type MessageRow = {
   attachments_json: string;
   model: string | null;
   reasoning_effort: string | null;
+  execution_profile: Message["executionProfile"];
+  selection_reason: string | null;
+  idempotency_key: string | null;
+  progress_json: string | null;
+  is_final: number;
+  delivery_claimed_at: string | null;
   lease_expires_at: string | null;
   status: Message["status"];
   created_at: string;
@@ -116,6 +122,12 @@ export class CoordinatorStore {
         attachments_json TEXT NOT NULL,
         model TEXT,
         reasoning_effort TEXT,
+        execution_profile TEXT,
+        selection_reason TEXT,
+        idempotency_key TEXT,
+        progress_json TEXT,
+        is_final INTEGER NOT NULL DEFAULT 0,
+        delivery_claimed_at TEXT,
         lease_expires_at TEXT,
         status TEXT NOT NULL,
         created_at TEXT NOT NULL
@@ -152,6 +164,34 @@ export class CoordinatorStore {
     if (!messageColumns.some((column) => column.name === "lease_expires_at")) {
       this.db.exec("ALTER TABLE messages ADD COLUMN lease_expires_at TEXT");
     }
+    if (!messageColumns.some((column) => column.name === "execution_profile")) {
+      this.db.exec("ALTER TABLE messages ADD COLUMN execution_profile TEXT");
+    }
+    if (!messageColumns.some((column) => column.name === "selection_reason")) {
+      this.db.exec("ALTER TABLE messages ADD COLUMN selection_reason TEXT");
+    }
+    if (!messageColumns.some((column) => column.name === "idempotency_key")) {
+      this.db.exec("ALTER TABLE messages ADD COLUMN idempotency_key TEXT");
+    }
+    if (!messageColumns.some((column) => column.name === "progress_json")) {
+      this.db.exec("ALTER TABLE messages ADD COLUMN progress_json TEXT");
+    }
+    if (!messageColumns.some((column) => column.name === "is_final")) {
+      this.db.exec(
+        "ALTER TABLE messages ADD COLUMN is_final INTEGER NOT NULL DEFAULT 0",
+      );
+    }
+    if (
+      !messageColumns.some((column) => column.name === "delivery_claimed_at")
+    ) {
+      this.db.exec("ALTER TABLE messages ADD COLUMN delivery_claimed_at TEXT");
+    }
+    this.db.exec(`
+      UPDATE messages SET is_final = 1 WHERE kind = 'result';
+      CREATE UNIQUE INDEX IF NOT EXISTS messages_idempotency
+        ON messages(from_agent_id, idempotency_key)
+        WHERE idempotency_key IS NOT NULL;
+    `);
     this.db.exec(`
       UPDATE messages
       SET lease_expires_at = strftime(
@@ -304,6 +344,7 @@ export class CoordinatorStore {
     }));
   }
 
+  // @spec spec://modules/coordinator/FEAT-002-task-coordination#followup-serialization
   createMessage(input: {
     kind: MessageKind;
     fromAgentId: string;
@@ -316,9 +357,24 @@ export class CoordinatorStore {
     attachments?: Attachment[];
     model?: string | null;
     reasoningEffort?: string | null;
+    executionProfile?: Message["executionProfile"];
+    selectionReason?: string | null;
+    idempotencyKey?: string | null;
+    progress?: Message["progress"];
+    isFinal?: boolean;
     leaseExpiresAt?: string | null;
     status?: Message["status"];
   }): Message {
+    if (input.idempotencyKey) {
+      const existing = this.findMessageByIdempotency(
+        input.fromAgentId,
+        input.idempotencyKey,
+      );
+      if (existing) {
+        this.assertIdempotentMessage(existing, input);
+        return existing;
+      }
+    }
     const id = randomUUID();
     const rootMessageId = input.rootMessageId ?? id;
     const createdAt = new Date().toISOString();
@@ -338,8 +394,10 @@ export class CoordinatorStore {
         INSERT INTO messages (
           id, kind, from_agent_id, to_agent_id, root_message_id, reply_to,
           project_id, target_thread_id, text, attachments_json, model,
-          reasoning_effort, lease_expires_at, status, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          reasoning_effort, execution_profile, selection_reason,
+          idempotency_key, progress_json, is_final, lease_expires_at, status,
+          created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
       .run(
         id,
@@ -354,11 +412,39 @@ export class CoordinatorStore {
         JSON.stringify(input.attachments ?? []),
         input.model ?? null,
         input.reasoningEffort ?? null,
+        input.executionProfile ?? null,
+        input.selectionReason ?? null,
+        input.idempotencyKey ?? null,
+        input.progress ? JSON.stringify(input.progress) : null,
+        input.isFinal ? 1 : 0,
         leaseExpiresAt,
         input.status ?? "queued",
         createdAt,
       );
     return this.getMessage(id);
+  }
+
+  findMessageByIdempotency(
+    fromAgentId: string,
+    idempotencyKey: string,
+  ): Message | null {
+    const row = this.db
+      .prepare(
+        `SELECT * FROM messages
+         WHERE from_agent_id = ? AND idempotency_key = ?`,
+      )
+      .get(fromAgentId, idempotencyKey) as MessageRow | undefined;
+    return row ? this.mapMessage(row) : null;
+  }
+
+  countProgressUpdates(replyTo: string): number {
+    const row = this.db
+      .prepare(
+        `SELECT COUNT(*) AS count FROM messages
+         WHERE kind = 'update' AND reply_to = ?`,
+      )
+      .get(replyTo) as { count: number };
+    return row.count;
   }
 
   getMessage(id: string): Message {
@@ -391,6 +477,59 @@ export class CoordinatorStore {
     return rows.map((row) => this.mapMessage(row));
   }
 
+  // @spec spec://modules/coordinator/FEAT-002-task-coordination#followup-serialization
+  claimQueuedMessages(
+    agentId: string,
+    afterCursor = 0,
+    now = new Date().toISOString(),
+    claimTtlMs = 30_000,
+  ): Message[] {
+    this.expireRequests(now);
+    const staleBefore = new Date(Date.parse(now) - claimTtlMs).toISOString();
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const rows = this.db
+        .prepare(
+          `SELECT * FROM messages
+           WHERE to_agent_id = ?
+             AND seq > ?
+             AND (
+               status = 'queued'
+               OR (
+                 status = 'delivered'
+                 AND delivery_claimed_at IS NOT NULL
+                 AND delivery_claimed_at <= ?
+               )
+             )
+           ORDER BY seq LIMIT 100`,
+        )
+        .all(agentId, afterCursor, staleBefore) as unknown as MessageRow[];
+      const claim = this.db.prepare(
+        `UPDATE messages
+         SET status = 'delivered', delivery_claimed_at = ?
+         WHERE id = ?
+           AND (
+             status = 'queued'
+             OR (
+               status = 'delivered'
+               AND delivery_claimed_at IS NOT NULL
+               AND delivery_claimed_at <= ?
+             )
+           )`,
+      );
+      const claimed: Message[] = [];
+      for (const row of rows) {
+        const changed = claim.run(now, row.id, staleBefore);
+        if (changed.changes > 0) claimed.push(this.getMessage(row.id));
+      }
+      this.db.exec("COMMIT");
+      return claimed;
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
   countOutstandingRequests(agentId: string): number {
     this.expireRequests();
     const row = this.db
@@ -407,7 +546,9 @@ export class CoordinatorStore {
   acknowledge(messageId: string): void {
     this.db
       .prepare(
-        "UPDATE messages SET status = 'delivered' WHERE id = ? AND status = 'queued'",
+        `UPDATE messages
+         SET status = 'delivered', delivery_claimed_at = NULL
+         WHERE id = ? AND status IN ('queued', 'delivered')`,
       )
       .run(messageId);
   }
@@ -468,16 +609,27 @@ export class CoordinatorStore {
             targetThreadId: request.targetThreadId,
             text: `Request lease expired at ${request.leaseExpiresAt}`,
             status: "failed",
+            isFinal: true,
           }),
       );
     }
     return results;
   }
 
+  // @spec spec://modules/coordinator/FEAT-002-task-coordination#scenarios.cancel
   cancelRequest(
     messageId: string,
     callerAgentId: string,
-  ): { request: Message; result: Message; cancellation: Message | null } {
+  ): {
+    request: Message;
+    result: Message;
+    cancellation: Message | null;
+    cancelledRelated: Array<{
+      request: Message;
+      result: Message;
+      cancellation: Message;
+    }>;
+  } {
     const request = this.getMessage(messageId);
     if (
       request.kind === "result" ||
@@ -493,10 +645,20 @@ export class CoordinatorStore {
     const existingResult = this.findResult(request.toAgentId, request.id);
     if (request.status === "completed" || request.status === "failed") {
       if (!existingResult) throw new Error(`Task ${messageId} is already finished`);
-      return { request, result: existingResult, cancellation: null };
+      return {
+        request,
+        result: existingResult,
+        cancellation: null,
+        cancelledRelated: [],
+      };
     }
     if (request.status === "cancelled" && existingResult) {
-      return { request, result: existingResult, cancellation: null };
+      return {
+        request,
+        result: existingResult,
+        cancellation: null,
+        cancelledRelated: [],
+      };
     }
     this.completeMessage(request.id, "cancelled");
     const result =
@@ -510,6 +672,7 @@ export class CoordinatorStore {
         targetThreadId: request.targetThreadId,
         text: "Task cancelled by the requesting agent",
         status: "cancelled",
+        isFinal: true,
       });
     const cancellation = this.createMessage({
       kind: "cancel",
@@ -520,10 +683,15 @@ export class CoordinatorStore {
       targetThreadId: request.targetThreadId,
       text: "cancel",
     });
+    const cancelledRelated =
+      request.id === request.rootMessageId
+        ? this.cancelOutstandingRelated(request, callerAgentId)
+        : [];
     return {
       request: this.getMessage(request.id),
       result,
       cancellation,
+      cancelledRelated,
     };
   }
 
@@ -673,10 +841,97 @@ export class CoordinatorStore {
       attachments: JSON.parse(row.attachments_json) as Attachment[],
       model: row.model,
       reasoningEffort: row.reasoning_effort,
+      executionProfile: row.execution_profile,
+      selectionReason: row.selection_reason,
+      idempotencyKey: row.idempotency_key,
+      progress: row.progress_json
+        ? (JSON.parse(row.progress_json) as Message["progress"])
+        : null,
+      isFinal: row.is_final === 1,
       leaseExpiresAt: row.lease_expires_at,
       status: row.status,
       createdAt: row.created_at,
     };
+  }
+
+  private assertIdempotentMessage(
+    existing: Message,
+    input: Parameters<CoordinatorStore["createMessage"]>[0],
+  ): void {
+    const same =
+      existing.kind === input.kind &&
+      existing.toAgentId === input.toAgentId &&
+      existing.rootMessageId === (input.rootMessageId ?? existing.id) &&
+      existing.replyTo === (input.replyTo ?? null) &&
+      existing.projectId === (input.projectId ?? null) &&
+      existing.targetThreadId === (input.targetThreadId ?? null) &&
+      existing.text === input.text &&
+      JSON.stringify(existing.attachments) ===
+        JSON.stringify(input.attachments ?? []) &&
+      existing.model === (input.model ?? null) &&
+      existing.reasoningEffort === (input.reasoningEffort ?? null) &&
+      existing.executionProfile === (input.executionProfile ?? null) &&
+      existing.selectionReason === (input.selectionReason ?? null) &&
+      JSON.stringify(existing.progress) ===
+        JSON.stringify(input.progress ?? null) &&
+      existing.isFinal === (input.isFinal ?? false);
+    if (!same) {
+      throw new Error(
+        `Idempotency key ${input.idempotencyKey} was already used for another message`,
+      );
+    }
+  }
+
+  private cancelOutstandingRelated(
+    root: Message,
+    callerAgentId: string,
+  ): Array<{
+    request: Message;
+    result: Message;
+    cancellation: Message;
+  }> {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM messages
+         WHERE root_message_id = ?
+           AND id != ?
+           AND from_agent_id = ?
+           AND kind IN ('start', 'send', 'thread_send')
+           AND status IN ('queued', 'delivered')
+         ORDER BY seq`,
+      )
+      .all(root.rootMessageId, root.id, callerAgentId) as unknown as MessageRow[];
+    return rows.map((row) => {
+      const request = this.mapMessage(row);
+      this.completeMessage(request.id, "cancelled");
+      const result =
+        this.findResult(request.toAgentId, request.id) ??
+        this.createMessage({
+          kind: "result",
+          fromAgentId: request.toAgentId,
+          toAgentId: request.fromAgentId,
+          rootMessageId: request.rootMessageId,
+          replyTo: request.id,
+          targetThreadId: request.targetThreadId,
+          text: "Task cancelled with its root request",
+          status: "cancelled",
+          isFinal: true,
+        });
+      const cancellation = this.createMessage({
+        kind: "cancel",
+        fromAgentId: callerAgentId,
+        toAgentId: request.toAgentId,
+        rootMessageId: request.rootMessageId,
+        replyTo: request.id,
+        targetThreadId: request.targetThreadId,
+        text: "cancel",
+      });
+      return {
+        request: this.getMessage(request.id),
+        result,
+        cancellation,
+      };
+    });
   }
 
   private mapTemporaryFile(row: TemporaryFileRow): TemporaryFileRecord {

@@ -8,6 +8,7 @@ import {
   type Message,
   type ModelDescriptor,
   type ProjectConfig,
+  type ProgressUpdate,
   type TemporaryFileAttachment,
 } from "../shared/protocol.js";
 import type {
@@ -77,6 +78,7 @@ export type WorkerOptions = {
     waitForTurn(
       threadId: string,
       turnId: string,
+      onProgress?: TurnOptions["onProgress"],
     ): Promise<{ status: string; text: string }>;
     steer(handle: TurnHandle, message: string): Promise<boolean>;
     interrupt(handle: TurnHandle): Promise<void>;
@@ -119,6 +121,9 @@ export class Worker {
     DownloadedTemporaryFile[]
   >();
   private readonly settledMessages = new Set<string>();
+  private readonly publishingProgress = new Set<string>();
+  private readonly lastProgressAt = new Map<string, number>();
+  private readonly progressDeliveries = new Map<string, Set<Promise<void>>>();
 
   constructor(private readonly options: WorkerOptions) {}
 
@@ -177,21 +182,9 @@ export class Worker {
       await this.persistState();
     }
     await this.options.client.acknowledge(message.id);
-    if (
-      item.mode === "resume" &&
-      message.attachments.length === 0 &&
-      this.active?.canSteer === true &&
-      this.active.item.message.rootMessageId === message.rootMessageId
-    ) {
-      try {
-        if (await this.options.appServer.steer(this.active.handle, message.text)) {
-          await this.removePending(message.id);
-          return;
-        }
-      } catch (error) {
-        console.error("[worker] steering failed; queuing message", error);
-      }
-    }
+    // @spec spec://modules/coordinator/FEAT-002-task-coordination#followup-serialization
+    // Every request becomes one queued turn. Active-turn steering would merge
+    // request boundaries and make result/cancellation ownership ambiguous.
     this.enqueue(item);
     void this.runNext();
   }
@@ -254,6 +247,24 @@ export class Worker {
           : item.mode === "thread_send"
             ? await this.startExistingThread(item)
             : await this.resumeBoundThread(item);
+      // A cancellation can arrive while Desktop is still accepting the turn,
+      // before `active` exists. Do not let that accepted turn occupy the worker
+      // after its coordinator request has already been settled.
+      if (this.settledMessages.has(item.message.id)) {
+        try {
+          if (this.options.desktopFollower && !canSteer) {
+            await this.options.desktopFollower.interrupt(handle);
+          } else {
+            await this.options.appServer.interrupt(handle);
+          }
+        } catch (error) {
+          console.error("[worker] cancelled startup interrupt failed", error);
+        }
+        await this.releaseTemporaryFiles(item.message.id);
+        await this.removePending(item.message.id);
+        await this.sendHeartbeat();
+        return;
+      }
       this.active = {
         item,
         handle,
@@ -301,21 +312,26 @@ export class Worker {
     const prompt = await this.preparePrompt(item.message, project);
     const title = remoteThreadTitle(item.message);
     const desktopFollower = this.options.desktopFollower;
+    const turnOptions = this.turnOptions(item.message);
     let handle: TurnHandle;
     let desktopAccepted = false;
     if (desktopFollower) {
       const threadId = await this.options.appServer.createThread(
         project.path,
         title,
-        this.turnOptions(item.message),
+        turnOptions,
       );
       try {
         handle = await desktopFollower.resumeThread(
           threadId,
           prompt,
-          this.turnOptions(item.message),
+          turnOptions,
           (acceptedThreadId, turnId) =>
-            this.options.appServer.waitForTurn(acceptedThreadId, turnId),
+            this.options.appServer.waitForTurn(
+              acceptedThreadId,
+              turnId,
+              turnOptions.onProgress,
+            ),
         );
         desktopAccepted = true;
       } catch (error) {
@@ -327,7 +343,7 @@ export class Worker {
           threadId,
           project.path,
           prompt,
-          this.turnOptions(item.message),
+          turnOptions,
         );
       }
     } else {
@@ -335,7 +351,7 @@ export class Worker {
         project.path,
         prompt,
         title,
-        this.turnOptions(item.message),
+        turnOptions,
       );
     }
     this.state.threads[item.message.rootMessageId] = {
@@ -367,15 +383,20 @@ export class Worker {
     if (project) await access(project.path);
     const prompt = await this.preparePrompt(item.message, project);
     const desktopFollower = this.options.desktopFollower;
+    const turnOptions = this.turnOptions(item.message);
     if (desktopFollower) {
       try {
         return {
           handle: await desktopFollower.resumeThread(
             binding.threadId,
             prompt,
-            this.turnOptions(item.message),
+            turnOptions,
             (threadId, turnId) =>
-              this.options.appServer.waitForTurn(threadId, turnId),
+              this.options.appServer.waitForTurn(
+                threadId,
+                turnId,
+                turnOptions.onProgress,
+              ),
           ),
           activity: `${project?.name ?? "Existing task"}: ${item.message.text.slice(0, 160)}`,
           canSteer: false,
@@ -392,7 +413,7 @@ export class Worker {
         binding.threadId,
         project?.path,
         prompt,
-        this.turnOptions(item.message),
+        turnOptions,
       ),
       activity: `${project?.name ?? "Existing task"}: ${item.message.text.slice(0, 160)}`,
       canSteer: true,
@@ -413,6 +434,7 @@ export class Worker {
     const project = this.projectForCwd(thread.cwd);
     const prompt = await this.preparePrompt(item.message, project);
     const desktopFollower = this.options.desktopFollower;
+    const turnOptions = this.turnOptions(item.message);
     let handle: TurnHandle | undefined;
     let desktopAccepted = false;
     if (desktopFollower) {
@@ -420,9 +442,13 @@ export class Worker {
         handle = await desktopFollower.resumeThread(
           threadId,
           prompt,
-          this.turnOptions(item.message),
+          turnOptions,
           (acceptedThreadId, turnId) =>
-            this.options.appServer.waitForTurn(acceptedThreadId, turnId),
+            this.options.appServer.waitForTurn(
+              acceptedThreadId,
+              turnId,
+              turnOptions.onProgress,
+            ),
         );
         desktopAccepted = true;
       } catch (error) {
@@ -436,7 +462,7 @@ export class Worker {
       threadId,
       undefined,
       prompt,
-      this.turnOptions(item.message),
+      turnOptions,
     );
     this.state.threads[item.message.rootMessageId] = {
       threadId,
@@ -529,6 +555,10 @@ export class Worker {
     const requesterAgentId =
       binding?.requesterAgentId ?? item.message.fromAgentId;
     try {
+      const progressDeliveries = this.progressDeliveries.get(item.message.id);
+      if (progressDeliveries?.size) {
+        await Promise.allSettled(progressDeliveries);
+      }
       await this.options.client.publishResult({
         rootMessageId: item.message.rootMessageId,
         replyTo: item.message.id,
@@ -549,6 +579,7 @@ export class Worker {
       return;
     }
     await this.releaseTemporaryFiles(item.message.id);
+    this.progressDeliveries.delete(item.message.id);
     await this.removePending(item.message.id);
     if (this.active?.item.message.id === item.message.id) this.active = undefined;
     this.settledMessages.add(item.message.id);
@@ -620,7 +651,91 @@ export class Worker {
       ...(message.reasoningEffort
         ? { reasoningEffort: message.reasoningEffort }
         : {}),
+      onProgress: (update) => {
+        const delivery = this.publishProgress(message, update);
+        const pending =
+          this.progressDeliveries.get(message.id) ?? new Set<Promise<void>>();
+        this.progressDeliveries.set(message.id, pending);
+        pending.add(delivery);
+        void delivery.finally(() => pending.delete(delivery));
+        return delivery;
+      },
     };
+  }
+
+  // @spec spec://modules/coordinator/FEAT-006-progress-updates#contracts
+  private async publishProgress(
+    message: Message,
+    update: {
+      threadId: string;
+      turnId: string;
+      itemId: string;
+      revision: number;
+      phase: ProgressUpdate["phase"];
+      text: string;
+      plan: ProgressUpdate["plan"];
+    },
+  ): Promise<void> {
+    const key = `${message.id}:${update.turnId}:${update.itemId}:${update.revision}`;
+    const throttleKey = `${message.id}:${update.phase}`;
+    const now = Date.now();
+    if (
+      update.phase === "activity" &&
+      now - (this.lastProgressAt.get(throttleKey) ?? 0) < 2_000
+    ) {
+      return;
+    }
+    if (update.phase === "activity") {
+      this.lastProgressAt.set(throttleKey, now);
+    }
+    if (
+      this.state.publishedProgressKeys.includes(key) ||
+      this.publishingProgress.has(key)
+    ) {
+      return;
+    }
+    this.publishingProgress.add(key);
+    try {
+      let delivered = false;
+      let lastError: unknown;
+      for (const delayMs of [0, 500, 2_000]) {
+        if (delayMs > 0) {
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+        }
+        try {
+          await this.options.client.publishUpdate({
+            rootMessageId: message.rootMessageId,
+            replyTo: message.id,
+            toAgentId: message.fromAgentId,
+            threadId: update.threadId,
+            turnId: update.turnId,
+            itemId: update.itemId,
+            revision: update.revision,
+            phase: update.phase,
+            text: update.text,
+            plan: update.plan,
+            idempotencyKey: key,
+          });
+          delivered = true;
+          break;
+        } catch (error) {
+          lastError = error;
+        }
+      }
+      if (!delivered) throw lastError;
+      this.state.publishedProgressKeys.push(key);
+      if (this.state.publishedProgressKeys.length > 500) {
+        this.state.publishedProgressKeys.splice(
+          0,
+          this.state.publishedProgressKeys.length - 500,
+        );
+      }
+      await this.persistState();
+    } catch (error) {
+      console.error("[worker] progress delivery failed", error);
+    } finally {
+      this.publishingProgress.delete(key);
+    }
   }
 
   private async validateModelSelection(message: Message): Promise<void> {
@@ -763,7 +878,7 @@ export class Worker {
         null,
       currentActivity: this.active?.activity ?? null,
       projects: descriptors,
-      workerVersion: "0.1.18",
+      workerVersion: "0.1.22",
     });
   }
 }

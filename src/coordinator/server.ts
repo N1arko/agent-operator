@@ -3,7 +3,11 @@ import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js
 import express from "express";
 import type { Express, NextFunction, Request, Response } from "express";
 import { createReadStream, existsSync } from "node:fs";
-import { HeartbeatSchema, PublishResultSchema } from "../shared/protocol.js";
+import {
+  HeartbeatSchema,
+  PublishResultSchema,
+  PublishUpdateSchema,
+} from "../shared/protocol.js";
 import { createMcpServer } from "./mcp.js";
 import type { CoordinatorStore } from "./store.js";
 import {
@@ -72,7 +76,7 @@ export const createCoordinatorApp = (
   };
 
   app.get("/health", (_request, response) => {
-    response.json({ status: "ok", version: "0.1.18" });
+    response.json({ status: "ok", version: "0.1.22" });
   });
 
   app.get("/v1/onboarding/worker.zip", authenticate, (_request, response) => {
@@ -84,7 +88,7 @@ export const createCoordinatorApp = (
     response.type("application/zip");
     response.setHeader(
       "content-disposition",
-      'attachment; filename="agent-operator-worker-0.1.18.zip"',
+      'attachment; filename="agent-operator-worker-0.1.22.zip"',
     );
     createReadStream(path).pipe(response);
   });
@@ -106,10 +110,10 @@ export const createCoordinatorApp = (
       Math.min(requestedWait, options.maxWaitMs ?? 25_000),
     );
     const deadline = Date.now() + waitMs;
-    let messages = store.listQueuedMessages(agentId, after);
+    let messages = store.claimQueuedMessages(agentId, after);
     while (messages.length === 0 && Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, 250));
-      messages = store.listQueuedMessages(agentId, after);
+      messages = store.claimQueuedMessages(agentId, after);
     }
     response.json({
       messages,
@@ -152,9 +156,53 @@ export const createCoordinatorApp = (
       text: input.text,
       attachments: input.attachments,
       status: resultStatus,
+      isFinal: true,
     });
     store.completeMessage(input.replyTo, resultStatus);
     response.status(201).json(result);
+  });
+
+  // @spec spec://modules/coordinator/FEAT-006-progress-updates#contracts
+  app.post("/v1/worker/updates", authenticate, (request, response) => {
+    const input = PublishUpdateSchema.parse(request.body);
+    const agentId = String(response.locals.agentId);
+    const original = store.getMessage(input.replyTo);
+    if (
+      original.toAgentId !== agentId ||
+      original.fromAgentId !== input.toAgentId ||
+      original.rootMessageId !== input.rootMessageId
+    ) {
+      response.status(403).json({ error: "invalid progress route" });
+      return;
+    }
+    const existing = store.findMessageByIdempotency(
+      agentId,
+      input.idempotencyKey,
+    );
+    if (!existing && store.countProgressUpdates(input.replyTo) >= 200) {
+      response.status(429).json({ error: "progress update quota reached" });
+      return;
+    }
+    const update = store.createMessage({
+      kind: "update",
+      fromAgentId: agentId,
+      toAgentId: input.toAgentId,
+      rootMessageId: input.rootMessageId,
+      replyTo: input.replyTo,
+      targetThreadId: input.threadId,
+      text: input.text,
+      idempotencyKey: input.idempotencyKey,
+      progress: {
+        turnId: input.turnId,
+        itemId: input.itemId,
+        revision: input.revision,
+        phase: input.phase,
+        plan: input.plan,
+      },
+      isFinal: false,
+      status: "completed",
+    });
+    response.status(existing ? 200 : 201).json(update);
   });
 
   app.post(

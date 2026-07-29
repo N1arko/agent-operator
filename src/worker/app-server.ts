@@ -3,6 +3,8 @@ import { createInterface } from "node:readline";
 import {
   ModelDescriptorSchema,
   type ModelDescriptor,
+  type ProgressPhase,
+  type ProgressPlanStep,
   type ReasoningEffort,
 } from "../shared/protocol.js";
 
@@ -27,6 +29,17 @@ export type TurnHandle = {
 export type TurnOptions = {
   model?: string;
   reasoningEffort?: ReasoningEffort;
+  onProgress?: (update: TurnProgress) => Promise<void> | void;
+};
+
+export type TurnProgress = {
+  threadId: string;
+  turnId: string;
+  itemId: string;
+  revision: number;
+  phase: ProgressPhase;
+  text: string;
+  plan: ProgressPlanStep[] | null;
 };
 
 export type LocalThread = {
@@ -161,12 +174,168 @@ const textInput = (text: string): JsonObject => ({
   text_elements: [],
 });
 
+const progressActivity = (item: JsonObject): string | null => {
+  switch (item.type) {
+    case "commandExecution":
+      return "Выполняет команды";
+    case "fileChange":
+      return "Работает с файлами";
+    case "mcpToolCall":
+    case "dynamicToolCall":
+      return "Использует подключённый инструмент";
+    case "webSearch":
+      return "Ищет информацию";
+    default:
+      return null;
+  }
+};
+
+const progressPlan = (value: unknown): ProgressPlanStep[] => {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => {
+    const step = asObject(entry);
+    if (
+      !step ||
+      typeof step.step !== "string" ||
+      typeof step.status !== "string"
+    ) {
+      return [];
+    }
+    return [{ step: step.step.slice(0, 500), status: step.status.slice(0, 50) }];
+  });
+};
+
+// @spec spec://modules/coordinator/FEAT-006-progress-updates#event-sources
+export const extractTurnProgressNotification = (
+  event: JsonObject,
+  threadId: string,
+  turnId: string,
+): Omit<TurnProgress, "revision"> | null => {
+  const params = asObject(event.params);
+  if (
+    !params ||
+    params.threadId !== threadId ||
+    params.turnId !== turnId
+  ) {
+    return null;
+  }
+  if (event.method === "turn/plan/updated") {
+    const plan = progressPlan(params.plan);
+    return plan.length > 0
+      ? {
+          threadId,
+          turnId,
+          itemId: "plan",
+          phase: "plan",
+          text: plan.map((step) => `${step.status}: ${step.step}`).join("\n"),
+          plan,
+        }
+      : null;
+  }
+  if (event.method !== "item/started" && event.method !== "item/completed") {
+    return null;
+  }
+  const item = asObject(params.item);
+  if (!item) return null;
+  const itemId =
+    typeof item.id === "string"
+      ? item.id
+      : typeof item.type === "string"
+        ? item.type
+        : "item";
+  if (
+    event.method === "item/completed" &&
+    item.type === "agentMessage" &&
+    item.phase === "commentary" &&
+    typeof item.text === "string" &&
+    item.text.trim()
+  ) {
+    return {
+      threadId,
+      turnId,
+      itemId,
+      phase: "commentary",
+      text: item.text.trim().slice(0, 4_000),
+      plan: null,
+    };
+  }
+  const activity =
+    event.method === "item/started" ? progressActivity(item) : null;
+  return activity
+    ? {
+        threadId,
+        turnId,
+        itemId,
+        phase: "activity",
+        text: activity,
+        plan: null,
+      }
+    : null;
+};
+
+export const extractTurnProgressSnapshot = (
+  turn: JsonObject,
+  threadId: string,
+  turnId: string,
+): Array<Omit<TurnProgress, "revision">> => {
+  const updates: Array<Omit<TurnProgress, "revision">> = [];
+  const plan = progressPlan(turn.plan);
+  if (plan.length > 0) {
+    updates.push({
+      threadId,
+      turnId,
+      itemId: "plan",
+      phase: "plan",
+      text: plan.map((step) => `${step.status}: ${step.step}`).join("\n"),
+      plan,
+    });
+  }
+  const items = Array.isArray(turn.items)
+    ? turn.items.map(asObject).filter((item): item is JsonObject => item !== null)
+    : [];
+  for (const [index, item] of items.entries()) {
+    const itemId =
+      typeof item.id === "string" ? item.id : `${String(index)}-item`;
+    if (
+      item.type === "agentMessage" &&
+      item.phase === "commentary" &&
+      typeof item.text === "string" &&
+      item.text.trim()
+    ) {
+      updates.push({
+        threadId,
+        turnId,
+        itemId,
+        phase: "commentary",
+        text: item.text.trim().slice(0, 4_000),
+        plan: null,
+      });
+      continue;
+    }
+    const activity = progressActivity(item);
+    if (activity) {
+      updates.push({
+        threadId,
+        turnId,
+        itemId,
+        phase: "activity",
+        text: activity,
+        plan: null,
+      });
+    }
+  }
+  return updates;
+};
+
 export class CodexAppServer {
   private child: ChildProcessWithoutNullStreams | null = null;
   private nextId = 1;
   private readonly pending = new Map<number, Pending>();
   private readonly notifications: JsonObject[] = [];
   private readonly waiters: Waiter[] = [];
+  private readonly notificationListeners = new Set<
+    (message: JsonObject) => void
+  >();
   private idleTimer: NodeJS.Timeout | null = null;
 
   constructor(
@@ -311,10 +480,12 @@ export class CodexAppServer {
   async waitForTurn(
     threadId: string,
     turnId: string,
+    onProgress?: TurnOptions["onProgress"],
   ): Promise<{ status: string; text: string }> {
     this.cancelIdleStop();
     await this.ensureStarted();
     const deadline = Date.now() + 24 * 60 * 60 * 1_000;
+    const revisions = new Map<string, { value: string; revision: number }>();
     try {
       while (Date.now() < deadline) {
         const response = await this.request("thread/read", {
@@ -329,6 +500,18 @@ export class CodexAppServer {
           : [];
         const turn = turns.find((candidate) => candidate.id === turnId);
         if (turn) {
+          for (const update of extractTurnProgressSnapshot(
+            turn,
+            threadId,
+            turnId,
+          )) {
+            const value = JSON.stringify(update);
+            const previous = revisions.get(update.itemId);
+            if (previous?.value === value) continue;
+            const revision = (previous?.revision ?? 0) + 1;
+            revisions.set(update.itemId, { value, revision });
+            await onProgress?.({ ...update, revision });
+          }
           const status = turnStatusValue(turn);
           if (successfulTurnStatus(status)) {
             return {
@@ -408,6 +591,41 @@ export class CodexAppServer {
     });
     const turn = response.turn as JsonObject;
     const turnId = String(turn.id);
+    const revisions = new Map<string, { value: string; revision: number }>();
+    const publish = (
+      itemId: string,
+      phase: ProgressPhase,
+      text: string,
+      plan: ProgressPlanStep[] | null = null,
+    ): void => {
+      const value = JSON.stringify({ phase, text, plan });
+      const previous = revisions.get(itemId);
+      if (previous?.value === value) return;
+      const revision = (previous?.revision ?? 0) + 1;
+      revisions.set(itemId, { value, revision });
+      void options
+        .onProgress?.({
+          threadId,
+          turnId,
+          itemId,
+          revision,
+          phase,
+          text,
+          plan,
+        });
+    };
+    const onNotification = (event: JsonObject): void => {
+      const update = extractTurnProgressNotification(event, threadId, turnId);
+      if (update) {
+        publish(
+          update.itemId,
+          update.phase,
+          update.text,
+          update.plan,
+        );
+      }
+    };
+    this.notificationListeners.add(onNotification);
     const completed = this.waitFor(
       (event) =>
         event.method === "turn/completed" &&
@@ -425,7 +643,7 @@ export class CodexAppServer {
       await this.showThread(threadId);
       this.scheduleIdleStop();
       return { status: String(completedTurn.status), text };
-    });
+    }).finally(() => this.notificationListeners.delete(onNotification));
     return { threadId, turnId, completed };
   }
 
@@ -460,7 +678,7 @@ export class CodexAppServer {
       clientInfo: {
         name: "agent-operator-worker",
         title: "Agent Operator worker",
-        version: "0.1.18",
+        version: "0.1.22",
       },
       capabilities: {
         experimentalApi: true,
@@ -497,6 +715,7 @@ export class CodexAppServer {
         clearTimeout(waiter.timer);
         waiter.resolve(message);
       }
+      for (const listener of this.notificationListeners) listener(message);
     }
   }
 

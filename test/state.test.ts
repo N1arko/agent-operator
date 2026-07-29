@@ -36,6 +36,7 @@ test("persists pending worker messages across restarts", async () => {
   await saveState(path, {
     cursor: 7,
     threads: {},
+    publishedProgressKeys: [],
     pendingMessages: [
       {
         id: messageId,
@@ -51,6 +52,11 @@ test("persists pending worker messages across restarts", async () => {
         attachments: [],
         model: null,
         reasoningEffort: null,
+        executionProfile: null,
+        selectionReason: null,
+        idempotencyKey: null,
+        progress: null,
+        isFinal: false,
         leaseExpiresAt: "2026-07-28T14:00:00.000Z",
         status: "queued",
         createdAt: new Date(0).toISOString(),

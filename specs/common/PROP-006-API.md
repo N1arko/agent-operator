@@ -37,7 +37,8 @@ Coordinator сопоставляет bearer token с caller agent ID. Worker и 
 | `agent_wait` | обновления после cursor, timeout до 30 секунд |
 
 `agent_start`, `agent_thread_send` и `agent_send` принимают опциональные
-`model` и `reasoningEffort`. Recipient сверяет их со своим каталогом.
+`model`, `reasoningEffort`, `executionProfile`, `selectionReason` и
+`idempotencyKey`. Recipient сверяет exact model и effort со своим каталогом.
 
 ## 4. Worker HTTP {#worker-http}
 
@@ -45,7 +46,7 @@ Coordinator сопоставляет bearer token с caller agent ID. Worker и 
 
 - `GET /health`;
 - heartbeat и long-poll inbox;
-- acknowledgement доставки и публикация result;
+- acknowledgement доставки, публикация progress update и result;
 - upload, download и acknowledgement временных файлов;
 - `POST /mcp`.
 
@@ -64,7 +65,9 @@ project, переполненная очередь, неверная attachment 
 
 - Cursor позволяет безопасно повторять ожидание.
 - Message ID и durable status предотвращают повторное исполнение.
+- Caller-stable idempotency key связывает сетевой retry с исходным request.
 - Publish result дедуплицируется по завершённому request.
+- Progress update дедуплицируется по request, turn, item и revision.
 - Upload временного файла использует idempotency key.
 - Ack и cleanup безопасны при повторе.
 - Сетевые вызовы имеют bounded timeout; повтор не должен создавать второй
@@ -72,4 +75,6 @@ project, переполненная очередь, неверная attachment 
 
 ## 7. История изменений {#changelog}
 
+- [2026-07-28] Версия 0.1.19 добавила идемпотентные request/update и
+  execution-profile metadata.
 - [2026-07-28] Описаны MCP и worker API версии 0.1.18.

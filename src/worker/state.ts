@@ -14,6 +14,7 @@ const WorkerStateSchema = z.object({
   cursor: z.number().int().nonnegative().default(0),
   threads: z.record(z.string(), ThreadBindingSchema).default({}),
   pendingMessages: z.array(MessageSchema).default([]),
+  publishedProgressKeys: z.array(z.string().min(1)).max(1_000).default([]),
 });
 export type WorkerState = z.infer<typeof WorkerStateSchema>;
 
@@ -22,7 +23,12 @@ export const loadState = async (path: string): Promise<WorkerState> => {
     return WorkerStateSchema.parse(JSON.parse(await readFile(path, "utf8")));
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      return { cursor: 0, threads: {}, pendingMessages: [] };
+      return {
+        cursor: 0,
+        threads: {},
+        pendingMessages: [],
+        publishedProgressKeys: [],
+      };
     }
     throw error;
   }

@@ -3,7 +3,7 @@ set -eu
 
 root_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 stage_dir="$root_dir/work/windows-package"
-archive="$root_dir/release/agent-operator-worker-0.1.18.zip"
+archive="$root_dir/release/agent-operator-worker-0.1.22.zip"
 
 rm -rf "$stage_dir"
 mkdir -p \
@@ -18,7 +18,7 @@ cp -R \
   "$root_dir/integrations/skills/coordinate-agents" \
   "$stage_dir/integration/"
 cp "$root_dir/docs/CHECKPOINT_WINDOWS.md" "$stage_dir/"
-cp "$root_dir/docs/UPDATE_WINDOWS_0.1.18.md" "$stage_dir/"
+cp "$root_dir/docs/UPDATE_WINDOWS_0.1.22.md" "$stage_dir/"
 
 cd "$stage_dir"
 rm -f "$archive"

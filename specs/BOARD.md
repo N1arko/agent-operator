@@ -22,6 +22,9 @@
 
 | ID | Spec | Title | Owner | Date |
 |----|------|-------|-------|------|
+| FIX-001 | `spec://modules/coordinator/FEAT-002-task-coordination#followup-serialization` | Последовательная доставка follow-up | @codex-mac | 2026-07-28 |
+| FEAT-006 | `spec://modules/coordinator/FEAT-006-progress-updates#root` | Промежуточные обновления удалённой задачи | @codex-mac | 2026-07-28 |
+| FIX-002 | `spec://modules/coordinator/FEAT-002-task-coordination#execution-profile-selection` | Настроить выбор модели и reasoning | @codex-mac | 2026-07-28 |
 | FEAT-001 | `spec://modules/coordinator/FEAT-001-agent-discovery#root` | Обнаружение агентов | @codex-mac | 2026-07-28 |
 | FEAT-002 | `spec://modules/coordinator/FEAT-002-task-coordination#root` | Координация задач | @codex-mac | 2026-07-28 |
 | FEAT-003 | `spec://modules/worker/FEAT-003-local-targeting#root` | Выбор проекта и задачи | @codex-mac | 2026-07-28 |

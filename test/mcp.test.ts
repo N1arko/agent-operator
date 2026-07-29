@@ -58,6 +58,7 @@ describe("Agent Operator MCP", () => {
         agentId: "mac",
         projectId: "project-a",
         message: "Plan this",
+        idempotencyKey: "plan-this-001",
       },
     });
     const start = call.structuredContent as {
@@ -65,6 +66,19 @@ describe("Agent Operator MCP", () => {
       rootMessageId: string;
     };
     assert.equal(start.rootMessageId, start.id);
+    const replay = await client.callTool({
+      name: "agent_start",
+      arguments: {
+        agentId: "mac",
+        projectId: "project-a",
+        message: "Plan this",
+        idempotencyKey: "plan-this-001",
+      },
+    });
+    assert.equal(
+      (replay.structuredContent as { id: string }).id,
+      start.id,
+    );
 
     const threadSearch = await client.callTool({
       name: "agent_threads",
@@ -216,6 +230,9 @@ describe("Agent Operator MCP", () => {
         message: "Use selected settings",
         model: "gpt-test",
         reasoningEffort: "high",
+        executionProfile: "deep",
+        selectionReason: "Architecture review",
+        idempotencyKey: "model-selection-001",
       },
     });
     const message = started.structuredContent as {
@@ -223,9 +240,15 @@ describe("Agent Operator MCP", () => {
       model: string;
       reasoningEffort: string;
       leaseExpiresAt: string;
+      executionProfile: string;
+      selectionReason: string;
+      idempotencyKey: string;
     };
     assert.equal(message.model, "gpt-test");
     assert.equal(message.reasoningEffort, "high");
+    assert.equal(message.executionProfile, "deep");
+    assert.equal(message.selectionReason, "Architecture review");
+    assert.equal(message.idempotencyKey, "model-selection-001");
     assert.ok(Date.parse(message.leaseExpiresAt) > Date.now());
 
     const cancelled = await client.callTool({

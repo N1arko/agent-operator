@@ -41,11 +41,15 @@ VPS выполняет роль mailbox и presence-сервиса: хранит
 - [Обновление Windows-worker 0.1.16](docs/UPDATE_WINDOWS_0.1.16.md)
 - [Обновление Windows-worker 0.1.17](docs/UPDATE_WINDOWS_0.1.17.md)
 - [Обновление Windows-worker 0.1.18](docs/UPDATE_WINDOWS_0.1.18.md)
+- [Обновление Windows-worker 0.1.19](docs/UPDATE_WINDOWS_0.1.19.md)
+- [Обновление Windows-worker 0.1.20](docs/UPDATE_WINDOWS_0.1.20.md)
+- [Обновление Windows-worker 0.1.22](docs/UPDATE_WINDOWS_0.1.22.md)
 - [Инструкция эксплуатации](docs/OPERATIONS.md)
 - [Mac Desktop E2E 0.1.15](docs/E2E_MAC_DESKTOP_0.1.15.md)
 - [Windows Desktop E2E 0.1.15](docs/E2E_WINDOWS_DESKTOP_0.1.15.md)
 - [Release E2E 0.1.16](docs/E2E_RELEASE_0.1.16.md)
 - [Release E2E 0.1.18](docs/E2E_RELEASE_0.1.18.md)
+- [Release E2E 0.1.22](docs/E2E_RELEASE_0.1.22.md)
 - [Исторический канбан разработки](KANBAN.md)
 
 ## Статус
@@ -126,3 +130,15 @@ Windows E2E подтвердил короткий, 48-секундный и па
 исходный snapshot и после завершения вызывает
 `thread-follower-load-complete-history`. Пустая карточка заполняется без
 перезапуска приложения.
+
+Версия `0.1.19` последовательно исполняет follow-up, дедуплицирует повтор
+одного intent, каскадно отменяет связанную очередь и передаёт commentary, plan
+и activity как промежуточные update. Профили `fast`, `balanced` и `deep`
+разрешаются через актуальный каталог recipient.
+
+Версия `0.1.20` дополняет Desktop progress резервным read-only наблюдением
+активного turn через app-server, сохраняя update перед terminal result.
+
+Версия `0.1.22` атомарно выдаёт inbox message одному worker и восстанавливает
+неподтверждённую доставку после короткого delivery lease. Cancellation во
+время принятия Desktop-turn прерывает локальный turn и освобождает очередь.

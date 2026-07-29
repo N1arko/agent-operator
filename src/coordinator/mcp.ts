@@ -2,8 +2,10 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod/v4";
 import {
   AttachmentSchema,
+  ExecutionProfileSchema,
   ReasoningEffortSchema,
   type Attachment,
+  type Message,
   type TemporaryFileAttachment,
 } from "../shared/protocol.js";
 import type { CoordinatorStore } from "./store.js";
@@ -62,9 +64,31 @@ const validateTemporaryAttachments = (
   );
 };
 
+// @spec spec://modules/coordinator/FEAT-002-task-coordination#execution-profile-selection
 const modelSelectionSchema = {
   model: z.string().trim().min(1).max(200).optional(),
   reasoningEffort: ReasoningEffortSchema.optional(),
+  executionProfile: ExecutionProfileSchema.optional(),
+  selectionReason: z.string().trim().min(1).max(500).optional(),
+};
+
+const idempotencySchema = {
+  idempotencyKey: z.string().trim().min(1).max(200).optional(),
+};
+
+// @spec spec://modules/coordinator/FEAT-002-task-coordination#followup-serialization
+const queueRequest = (
+  store: CoordinatorStore,
+  recipientAgentId: string,
+  input: Parameters<CoordinatorStore["createMessage"]>[0],
+): Message => {
+  if (
+    !input.idempotencyKey ||
+    !store.findMessageByIdempotency(input.fromAgentId, input.idempotencyKey)
+  ) {
+    ensureQueueCapacity(store, recipientAgentId);
+  }
+  return store.createMessage(input);
 };
 
 export const createMcpServer = (
@@ -73,7 +97,7 @@ export const createMcpServer = (
 ): McpServer => {
   const server = new McpServer({
     name: "agent-operator",
-    version: "0.1.18",
+    version: "0.1.22",
   });
 
   server.registerTool(
@@ -129,6 +153,7 @@ export const createMcpServer = (
         message: z.string().min(1),
         attachments: z.array(AttachmentSchema).max(20).default([]),
         ...modelSelectionSchema,
+        ...idempotencySchema,
       },
     },
     ({
@@ -138,20 +163,22 @@ export const createMcpServer = (
       attachments,
       model,
       reasoningEffort,
+      executionProfile,
+      selectionReason,
+      idempotencyKey,
     }) => {
       if (!store.getAgent(agentId)) throw new Error(`Unknown agent: ${agentId}`);
       const project = store
         .listProjects(agentId)
         .find((candidate) => candidate.id === projectId && candidate.available);
       if (!project) throw new Error(`Unavailable project: ${projectId}`);
-      ensureQueueCapacity(store, agentId);
       validateTemporaryAttachments(
         store,
         callerAgentId,
         agentId,
         attachments,
       );
-      const queued = store.createMessage({
+      const queued = queueRequest(store, agentId, {
         kind: "start",
         fromAgentId: callerAgentId,
         toAgentId: agentId,
@@ -160,6 +187,9 @@ export const createMcpServer = (
         attachments,
         model,
         reasoningEffort,
+        executionProfile,
+        selectionReason,
+        idempotencyKey,
       });
       return Promise.resolve(response(queued));
     },
@@ -173,17 +203,18 @@ export const createMcpServer = (
         "Queue bounded local discovery of the Codex models and reasoning effort levels available on a selected agent. Read the result through agent_wait.",
       inputSchema: {
         agentId: z.string().min(1),
+        ...idempotencySchema,
       },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
-    ({ agentId }) => {
+    ({ agentId, idempotencyKey }) => {
       if (!store.getAgent(agentId)) throw new Error(`Unknown agent: ${agentId}`);
-      ensureQueueCapacity(store, agentId);
-      const queued = store.createMessage({
+      const queued = queueRequest(store, agentId, {
         kind: "models_query",
         fromAgentId: callerAgentId,
         toAgentId: agentId,
         text: "{}",
+        idempotencyKey,
       });
       return Promise.resolve(response(queued));
     },
@@ -199,17 +230,18 @@ export const createMcpServer = (
         agentId: z.string().min(1),
         query: z.string().trim().min(1).max(200).optional(),
         limit: z.number().int().min(1).max(20).default(10),
+        ...idempotencySchema,
       },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
-    ({ agentId, query, limit }) => {
+    ({ agentId, query, limit, idempotencyKey }) => {
       if (!store.getAgent(agentId)) throw new Error(`Unknown agent: ${agentId}`);
-      ensureQueueCapacity(store, agentId);
-      const queued = store.createMessage({
+      const queued = queueRequest(store, agentId, {
         kind: "threads_query",
         fromAgentId: callerAgentId,
         toAgentId: agentId,
         text: JSON.stringify({ query, limit }),
+        idempotencyKey,
       });
       return Promise.resolve(response(queued));
     },
@@ -227,6 +259,7 @@ export const createMcpServer = (
         message: z.string().min(1),
         attachments: z.array(AttachmentSchema).max(20).default([]),
         ...modelSelectionSchema,
+        ...idempotencySchema,
       },
     },
     ({
@@ -236,16 +269,18 @@ export const createMcpServer = (
       attachments,
       model,
       reasoningEffort,
+      executionProfile,
+      selectionReason,
+      idempotencyKey,
     }) => {
       if (!store.getAgent(agentId)) throw new Error(`Unknown agent: ${agentId}`);
-      ensureQueueCapacity(store, agentId);
       validateTemporaryAttachments(
         store,
         callerAgentId,
         agentId,
         attachments,
       );
-      const queued = store.createMessage({
+      const queued = queueRequest(store, agentId, {
         kind: "thread_send",
         fromAgentId: callerAgentId,
         toAgentId: agentId,
@@ -254,6 +289,9 @@ export const createMcpServer = (
         attachments,
         model,
         reasoningEffort,
+        executionProfile,
+        selectionReason,
+        idempotencyKey,
       });
       return Promise.resolve(response(queued));
     },
@@ -270,9 +308,19 @@ export const createMcpServer = (
         message: z.string().min(1),
         attachments: z.array(AttachmentSchema).max(20).default([]),
         ...modelSelectionSchema,
+        ...idempotencySchema,
       },
     },
-    ({ replyTo, message, attachments, model, reasoningEffort }) => {
+    ({
+      replyTo,
+      message,
+      attachments,
+      model,
+      reasoningEffort,
+      executionProfile,
+      selectionReason,
+      idempotencyKey,
+    }) => {
       const previous = store.getMessage(replyTo);
       if (
         previous.fromAgentId !== callerAgentId &&
@@ -284,24 +332,27 @@ export const createMcpServer = (
         previous.fromAgentId === callerAgentId
           ? previous.toAgentId
           : previous.fromAgentId;
-      ensureQueueCapacity(store, toAgentId);
       validateTemporaryAttachments(
         store,
         callerAgentId,
         toAgentId,
         attachments,
       );
-      const queued = store.createMessage({
+      const queued = queueRequest(store, toAgentId, {
         kind: "send",
         fromAgentId: callerAgentId,
         toAgentId,
         rootMessageId: previous.rootMessageId,
         replyTo,
         projectId: previous.projectId,
+        targetThreadId: previous.targetThreadId,
         text: message,
         attachments,
         model,
         reasoningEffort,
+        executionProfile,
+        selectionReason,
+        idempotencyKey,
       });
       return Promise.resolve(response(queued));
     },

@@ -106,6 +106,63 @@ describe("CoordinatorStore", () => {
     assert.deepEqual(store.listQueuedMessages("windows", 0), []);
   });
 
+  it("atomically claims inbox messages across duplicate worker processes", () => {
+    const store = createStore();
+    const request = store.createMessage({
+      kind: "start",
+      fromAgentId: "mac",
+      toAgentId: "windows",
+      projectId: "project",
+      text: "Claim once",
+    });
+    const claimedAt = "2026-07-29T00:00:00.000Z";
+
+    assert.deepEqual(
+      store.claimQueuedMessages("windows", 0, claimedAt).map((message) => message.id),
+      [request.id],
+    );
+    assert.deepEqual(
+      store.claimQueuedMessages("windows", 0, claimedAt),
+      [],
+    );
+    store.acknowledge(request.id);
+    assert.deepEqual(
+      store.claimQueuedMessages(
+        "windows",
+        0,
+        "2026-07-29T00:01:00.000Z",
+      ),
+      [],
+    );
+  });
+
+  it("reclaims an unacknowledged inbox delivery after its short lease", () => {
+    const store = createStore();
+    const request = store.createMessage({
+      kind: "start",
+      fromAgentId: "mac",
+      toAgentId: "windows",
+      projectId: "project",
+      text: "Recover delivery",
+    });
+    store.claimQueuedMessages(
+      "windows",
+      0,
+      "2026-07-29T00:00:00.000Z",
+      1_000,
+    );
+
+    assert.deepEqual(
+      store.claimQueuedMessages(
+        "windows",
+        0,
+        "2026-07-29T00:00:02.000Z",
+        1_000,
+      ).map((message) => message.id),
+      [request.id],
+    );
+  });
+
   it("stores an exact target thread for projectless work", () => {
     const store = createStore();
     const message = store.createMessage({
@@ -171,6 +228,74 @@ describe("CoordinatorStore", () => {
     assert.deepEqual(
       store.listQueuedMessages("windows").map((message) => message.kind),
       ["cancel"],
+    );
+  });
+
+  it("deduplicates one caller intent and rejects key reuse for other work", () => {
+    const store = createStore();
+    const first = store.createMessage({
+      kind: "thread_send",
+      fromAgentId: "mac",
+      toAgentId: "windows",
+      targetThreadId: "019f9ff2-42a3-7c43-92e9-ab1b9794e043",
+      text: "One intent",
+      idempotencyKey: "intent-001",
+    });
+    const replay = store.createMessage({
+      kind: "thread_send",
+      fromAgentId: "mac",
+      toAgentId: "windows",
+      targetThreadId: "019f9ff2-42a3-7c43-92e9-ab1b9794e043",
+      text: "One intent",
+      idempotencyKey: "intent-001",
+    });
+
+    assert.equal(replay.id, first.id);
+    assert.equal(store.countOutstandingRequests("windows"), 1);
+    assert.throws(
+      () =>
+        store.createMessage({
+          kind: "thread_send",
+          fromAgentId: "mac",
+          toAgentId: "windows",
+          targetThreadId: "019f9ff2-42a3-7c43-92e9-ab1b9794e043",
+          text: "Different intent",
+          idempotencyKey: "intent-001",
+        }),
+      /already used/,
+    );
+  });
+
+  it("cancels queued follow-ups together with their root request", () => {
+    const store = createStore();
+    const root = store.createMessage({
+      kind: "start",
+      fromAgentId: "mac",
+      toAgentId: "windows",
+      projectId: "project",
+      text: "Root",
+    });
+    const followUp = store.createMessage({
+      kind: "send",
+      fromAgentId: "mac",
+      toAgentId: "windows",
+      rootMessageId: root.id,
+      replyTo: root.id,
+      projectId: "project",
+      text: "Follow-up",
+    });
+
+    const cancelled = store.cancelRequest(root.id, "mac");
+
+    assert.equal(cancelled.cancelledRelated.length, 1);
+    assert.equal(cancelled.cancelledRelated[0]?.request.id, followUp.id);
+    assert.equal(store.getMessage(followUp.id).status, "cancelled");
+    assert.deepEqual(
+      store
+        .listQueuedMessages("windows")
+        .filter((message) => message.kind === "cancel")
+        .map((message) => message.replyTo),
+      [root.id, followUp.id],
     );
   });
 

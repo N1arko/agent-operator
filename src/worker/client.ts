@@ -2,6 +2,7 @@ import {
   HeartbeatSchema,
   MessageSchema,
   PublishResultSchema,
+  PublishUpdateSchema,
   TemporaryFileAttachmentSchema,
   type Heartbeat,
   type Message,
@@ -56,6 +57,16 @@ export class CoordinatorClient {
   ): Promise<void> {
     const body = PublishResultSchema.parse(input);
     await this.request("/v1/worker/results", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  }
+
+  async publishUpdate(
+    input: z.input<typeof PublishUpdateSchema>,
+  ): Promise<void> {
+    const body = PublishUpdateSchema.parse(input);
+    await this.request("/v1/worker/updates", {
       method: "POST",
       body: JSON.stringify(body),
     });

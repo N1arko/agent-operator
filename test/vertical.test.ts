@@ -239,16 +239,40 @@ describe("local vertical scenario", () => {
       ): Promise<TurnHandle> {
         desktopResumes.push({ threadId, prompt });
         desktopOptions.push(options);
-        return Promise.resolve({
+        if (prompt === "progress") {
+          setTimeout(
+            () =>
+              void options.onProgress?.({
+                threadId,
+                turnId: `desktop-turn-${desktopResumes.length}`,
+                itemId: "commentary-1",
+                revision: 1,
+                phase: "commentary",
+                text: "Checking progress",
+                plan: null,
+              }),
+            5,
+          );
+        }
+        const handle: TurnHandle = {
           threadId,
           turnId: `desktop-turn-${desktopResumes.length}`,
-          completed: new Promise((resolve) =>
+          completed: new Promise<{ status: string; text: string }>((resolve) =>
             setTimeout(
               () => resolve({ status: "completed", text: `done: ${prompt}` }),
-              prompt === "wait for cancellation" ? 5_000 : 30,
+              prompt === "wait for cancellation"
+                ? 5_000
+                : prompt === "cancel during startup"
+                  ? 5_000
+                : prompt === "progress"
+                  ? 300
+                  : 30,
             ),
           ),
-        });
+        };
+        return prompt === "cancel during startup"
+          ? new Promise((resolve) => setTimeout(() => resolve(handle), 100))
+          : Promise.resolve(handle);
       },
       interrupt(handle: TurnHandle): Promise<void> {
         desktopInterrupts.push(handle);
@@ -355,10 +379,9 @@ describe("local vertical scenario", () => {
     );
     assert.equal(fakeAppServer.starts.length, 0);
     assert.equal(desktopResumes[0]?.threadId, fakeAppServer.createdThreadId);
-    assert.deepEqual(desktopOptions[0], {
-      model: "test-model",
-      reasoningEffort: "medium",
-    });
+    assert.equal(desktopOptions[0]?.model, "test-model");
+    assert.equal(desktopOptions[0].reasoningEffort, "medium");
+    assert.equal(typeof desktopOptions[0].onProgress, "function");
 
     await client.callTool({
       name: "agent_send",
@@ -474,6 +497,48 @@ describe("local vertical scenario", () => {
       prompt: "report status",
     });
 
+    await client.callTool({
+      name: "agent_thread_send",
+      arguments: {
+        agentId: "mac",
+        threadId: fakeAppServer.externalThread.threadId,
+        message: "progress",
+      },
+    });
+    const progressWait = await client.callTool({
+      name: "agent_wait",
+      arguments: {
+        afterCursor: externalOutput.nextCursor,
+        timeoutMs: 5_000,
+      },
+    });
+    const progressOutput = progressWait.structuredContent as {
+      messages: Array<{
+        kind: string;
+        isFinal: boolean;
+        text: string;
+        cursor: number;
+      }>;
+      nextCursor: number;
+    };
+    assert.equal(progressOutput.messages[0]?.kind, "update");
+    assert.equal(progressOutput.messages[0].isFinal, false);
+    assert.equal(progressOutput.messages[0].text, "Checking progress");
+    const progressFinalWait = await client.callTool({
+      name: "agent_wait",
+      arguments: {
+        afterCursor: progressOutput.nextCursor,
+        timeoutMs: 5_000,
+      },
+    });
+    const progressFinalOutput = progressFinalWait.structuredContent as {
+      messages: Array<{ kind: string; isFinal: boolean; text: string }>;
+      nextCursor: number;
+    };
+    assert.equal(progressFinalOutput.messages[0]?.kind, "result");
+    assert.equal(progressFinalOutput.messages[0].isFinal, true);
+    assert.equal(progressFinalOutput.messages[0].text, "done: progress");
+
     fakeAppServer.externalThread.status = "active";
     await client.callTool({
       name: "agent_thread_send",
@@ -486,7 +551,7 @@ describe("local vertical scenario", () => {
     const activeWait = await client.callTool({
       name: "agent_wait",
       arguments: {
-        afterCursor: externalOutput.nextCursor,
+        afterCursor: progressFinalOutput.nextCursor,
         timeoutMs: 5_000,
       },
     });
@@ -499,7 +564,7 @@ describe("local vertical scenario", () => {
     assert.equal(activeResult.status, "failed");
     assert.match(activeResult.text, /is active/);
     assert.equal(fakeAppServer.resumes.length, 0);
-    assert.equal(desktopResumes.length, 3);
+    assert.equal(desktopResumes.length, 4);
 
     fakeAppServer.externalThread.status = "idle";
     const cancellable = await client.callTool({
@@ -532,6 +597,7 @@ describe("local vertical scenario", () => {
     });
     const cancellationOutput = cancellationWait.structuredContent as {
       messages: Array<{ status: string; replyTo: string }>;
+      nextCursor: number;
     };
     assert.ok(cancellationOutput.messages[0]);
     assert.equal(cancellationOutput.messages[0].status, "cancelled");
@@ -541,6 +607,67 @@ describe("local vertical scenario", () => {
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
     assert.equal(desktopInterrupts.length, 1);
+    assert.equal(store.countOutstandingRequests("mac"), 0);
+
+    const startupCancellation = await client.callTool({
+      name: "agent_thread_send",
+      arguments: {
+        agentId: "mac",
+        threadId: fakeAppServer.externalThread.threadId,
+        message: "cancel during startup",
+      },
+    });
+    const startupCancellationMessage = startupCancellation.structuredContent as {
+      id: string;
+    };
+    const startupDeadline = Date.now() + 2_000;
+    while (
+      !desktopResumes.some(
+        (entry) => entry.prompt === "cancel during startup",
+      ) &&
+      Date.now() < startupDeadline
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    assert.equal(
+      desktopResumes.some((entry) => entry.prompt === "cancel during startup"),
+      true,
+    );
+    await client.callTool({
+      name: "agent_cancel",
+      arguments: { messageId: startupCancellationMessage.id },
+    });
+    const following = await client.callTool({
+      name: "agent_thread_send",
+      arguments: {
+        agentId: "mac",
+        threadId: fakeAppServer.externalThread.threadId,
+        message: "after startup cancellation",
+      },
+    });
+    const followingMessage = following.structuredContent as { id: string };
+    let cursor = cancellationOutput.nextCursor;
+    let followingResult:
+      | { replyTo: string; status: string; text: string }
+      | undefined;
+    for (let attempt = 0; attempt < 5 && !followingResult; attempt += 1) {
+      const waited = await client.callTool({
+        name: "agent_wait",
+        arguments: { afterCursor: cursor, timeoutMs: 5_000 },
+      });
+      const output = waited.structuredContent as {
+        messages: Array<{ replyTo: string; status: string; text: string }>;
+        nextCursor: number;
+      };
+      cursor = output.nextCursor;
+      followingResult = output.messages.find(
+        (message) => message.replyTo === followingMessage.id,
+      );
+    }
+    assert.ok(followingResult);
+    assert.equal(followingResult.status, "completed");
+    assert.equal(followingResult.text, "done: after startup cancellation");
+    assert.equal(desktopInterrupts.length, 2);
     assert.equal(store.countOutstandingRequests("mac"), 0);
 
     await client.close();

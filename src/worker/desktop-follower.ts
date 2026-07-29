@@ -5,6 +5,7 @@ import {
   type LocalThread,
   type TurnHandle,
   type TurnOptions,
+  type TurnProgress,
 } from "./app-server.js";
 
 const MAX_FRAME_BYTES = 256 * 1024 * 1024;
@@ -144,6 +145,54 @@ const turnText = (turn: JsonObject): string => {
         ? unclassifiedMessages
         : messages;
   return selected.map((item) => String(item.text)).join("\n");
+};
+
+// @spec spec://modules/coordinator/FEAT-006-progress-updates#event-sources
+const desktopProgressItems = (
+  threadId: string,
+  turnId: string,
+  turn: JsonObject,
+): Array<Omit<TurnProgress, "revision">> => {
+  const items = Array.isArray(turn.items)
+    ? turn.items.map(asObject).filter((item): item is JsonObject => item !== null)
+    : [];
+  return items.flatMap<Omit<TurnProgress, "revision">>((item, index) => {
+    const itemId =
+      typeof item.id === "string" ? item.id : `${String(item.type)}-${index}`;
+    if (
+      item.type === "agentMessage" &&
+      item.phase === "commentary" &&
+      typeof item.text === "string" &&
+      item.text.trim()
+    ) {
+      return [{
+        threadId,
+        turnId,
+        itemId,
+        phase: "commentary" as const,
+        text: item.text.trim().slice(0, 4_000),
+        plan: null,
+      }];
+    }
+    const activity =
+      item.type === "commandExecution"
+        ? "Выполняет команды"
+        : item.type === "fileChange"
+          ? "Работает с файлами"
+          : item.type === "mcpToolCall" || item.type === "dynamicToolCall"
+            ? "Использует подключённый инструмент"
+            : null;
+    return activity
+      ? [{
+          threadId,
+          turnId,
+          itemId,
+          phase: "activity" as const,
+          text: activity,
+          plan: null,
+        }]
+      : [];
+  });
 };
 
 class DesktopIpcConnection {
@@ -425,12 +474,14 @@ export class CodexDesktopFollower {
             parsedThreadId,
             turnId,
             externalCompletion,
+            options.onProgress,
           )
         : this.waitForCompletion(
             connection,
             parsedThreadId,
             baselineTurnIds,
             turnId,
+            options.onProgress,
           );
       return {
         threadId: parsedThreadId,
@@ -493,8 +544,10 @@ export class CodexDesktopFollower {
     threadId: string,
     baselineTurnIds: Set<string>,
     expectedTurnId: string,
+    onProgress?: TurnOptions["onProgress"],
   ): Promise<{ status: string; text: string }> {
     const deadline = Date.now() + this.completionTimeoutMs;
+    const revisions = new Map<string, { value: string; revision: number }>();
     try {
       while (Date.now() < deadline) {
         const thread = connection.conversationState(threadId);
@@ -516,6 +569,13 @@ export class CodexDesktopFollower {
                 !baselineTurnIds.has(String(candidate.id)),
             ) ?? null;
         if (turn) {
+          this.publishProgressSnapshot(
+            threadId,
+            String(turn.id),
+            turn,
+            revisions,
+            onProgress,
+          );
           const status = turnStatus(turn);
           if (terminalStatus(status)) {
             return { status, text: turnText(turn) };
@@ -540,7 +600,32 @@ export class CodexDesktopFollower {
       threadId: string,
       turnId: string,
     ) => Promise<{ status: string; text: string }>,
+    onProgress?: TurnOptions["onProgress"],
   ): Promise<{ status: string; text: string }> {
+    const revisions = new Map<string, { value: string; revision: number }>();
+    let monitoring = true;
+    const monitor = async (): Promise<void> => {
+      while (monitoring) {
+        const state = connection.conversationState(threadId);
+        const turns = Array.isArray(state?.turns)
+          ? state.turns
+              .map(asObject)
+              .filter((turn): turn is JsonObject => turn !== null)
+          : [];
+        const turn = turns.find((candidate) => String(candidate.id) === turnId);
+        if (turn) {
+          this.publishProgressSnapshot(
+            threadId,
+            turnId,
+            turn,
+            revisions,
+            onProgress,
+          );
+        }
+        await new Promise((resolve) => setTimeout(resolve, this.pollMs));
+      }
+    };
+    const monitoringPromise = monitor();
     try {
       const result = await externalCompletion(threadId, turnId);
       await connection.request(
@@ -550,8 +635,27 @@ export class CodexDesktopFollower {
       );
       return result;
     } finally {
+      monitoring = false;
+      await monitoringPromise;
       connection.setThreadFollowing(threadId, false);
       connection.close();
+    }
+  }
+
+  private publishProgressSnapshot(
+    threadId: string,
+    turnId: string,
+    turn: JsonObject,
+    revisions: Map<string, { value: string; revision: number }>,
+    onProgress?: TurnOptions["onProgress"],
+  ): void {
+    for (const update of desktopProgressItems(threadId, turnId, turn)) {
+      const value = JSON.stringify(update);
+      const previous = revisions.get(update.itemId);
+      if (previous?.value === value) continue;
+      const revision = (previous?.revision ?? 0) + 1;
+      revisions.set(update.itemId, { value, revision });
+      void onProgress?.({ ...update, revision });
     }
   }
 }

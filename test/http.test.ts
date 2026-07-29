@@ -72,6 +72,61 @@ describe("Coordinator HTTP", () => {
     assert.equal(store.getAgent("mac")?.name, "Mac");
   });
 
+  it("stores progress idempotently without completing the request", async () => {
+    const store = new CoordinatorStore(":memory:");
+    stores.push(store);
+    const request = store.createMessage({
+      kind: "start",
+      fromAgentId: "mac",
+      toAgentId: "windows",
+      projectId: "project",
+      text: "Long task",
+    });
+    const app = createCoordinatorApp(store, {
+      host: "127.0.0.1",
+      tokens: new Map([["windows-token", "windows"]]),
+      maxWaitMs: 10,
+    });
+    const server = app.listen(0, "127.0.0.1");
+    servers.push(server);
+    await new Promise<void>((resolve) => server.once("listening", resolve));
+    const address = server.address();
+    assert.ok(address && typeof address !== "string");
+    const base = `http://127.0.0.1:${address.port}`;
+    const body = {
+      rootMessageId: request.id,
+      replyTo: request.id,
+      toAgentId: "mac",
+      threadId: "019f9ff2-42a3-7c43-92e9-ab1b9794e043",
+      turnId: "turn-1",
+      itemId: "commentary-1",
+      revision: 1,
+      phase: "commentary",
+      text: "Checking files",
+      plan: null,
+      idempotencyKey: `${request.id}:turn-1:commentary-1:1`,
+    };
+    const publish = () =>
+      fetch(`${base}/v1/worker/updates`, {
+        method: "POST",
+        headers: {
+          authorization: "Bearer windows-token",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+
+    assert.equal((await publish()).status, 201);
+    assert.equal((await publish()).status, 200);
+    const updates = store
+      .listMessages("mac")
+      .filter((message) => message.kind === "update");
+    assert.equal(updates.length, 1);
+    assert.equal(updates[0]?.isFinal, false);
+    assert.equal(updates[0].progress?.phase, "commentary");
+    assert.equal(store.getMessage(request.id).status, "queued");
+  });
+
   it("uploads, authorizes, downloads and acknowledges a temporary file", async () => {
     const store = new CoordinatorStore(":memory:");
     stores.push(store);

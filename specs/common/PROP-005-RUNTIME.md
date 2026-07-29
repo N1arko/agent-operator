@@ -13,6 +13,7 @@ Coordinator всегда принимает сообщения. Worker боль�
 | heartbeat | interval | worker | SQLite agent snapshot | следующий interval |
 | inbox poll | завершение long poll | worker | SQLite message + local pending | bounded retry |
 | task execution | queued executable message | worker | pending + binding + lease | после restart до terminal |
+| progress publish | commentary, plan или activity | worker | update key | bounded idempotent retry |
 | result publish | terminal Codex turn | worker | SQLite result | idempotent result |
 | file cleanup | heartbeat/file operation/ack | coordinator + worker | file metadata | безопасный повтор |
 | backup | systemd timer | VPS | SQLite snapshot | следующая попытка оператора/timer |
@@ -21,9 +22,12 @@ Coordinator всегда принимает сообщения. Worker боль�
 
 - Coordinator хранит durable сообщения и выдаёт их по cursor.
 - На recipient допускается до трёх незавершённых запросов.
-- Worker добавляет сообщение в pending state до acknowledgement.
+- Coordinator атомарно claim-ит сообщение на короткий delivery lease. Worker
+  добавляет его в pending state до acknowledgement.
 - Один request ID исполняется один раз; result привязан к root/replyTo.
+- Один caller idempotency key создаёт один request.
 - Один активный turn блокирует следующий executable item этого worker.
+- Follow-up всегда запускается отдельным turn после активного.
 - Read-only discovery requests также проходят через mailbox и имеют bounded
   результат.
 
@@ -58,4 +62,6 @@ TTL.
 
 ## 6. История изменений {#changelog}
 
+- [2026-07-28] Версия 0.1.19 добавила последовательные follow-up и
+  промежуточные update.
 - [2026-07-28] Зафиксирована runtime-модель версии 0.1.18.
