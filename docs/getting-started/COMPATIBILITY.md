@@ -12,7 +12,7 @@ manifests, image labels, and release receipt.
 | Coordinator | Linux container, `amd64` and `arm64`, Docker Compose v2 | Multi-architecture OCI build and Trivy scan on Ubuntu 24.04 |
 | macOS worker | Apple Silicon macOS with Node.js 24 | Full lifecycle smoke on `macos-26-arm64`; clean-room host gate required |
 | Windows worker | 64-bit Windows user session with Node.js 24 | Full lifecycle smoke on Windows Server 2025 x64; clean-room host gate required |
-| Codex | CLI/Desktop exposing `codex --version`, `codex mcp`, and compatible app-server/Desktop IPC | Exact public build recorded by final clean-room receipt |
+| Codex | Current official CLI/Desktop exposing `codex --version`, `codex mcp`, and compatible app-server/Desktop IPC; acceptance baseline CLI `0.149.0` | Exact public build recorded by final clean-room receipt |
 
 The final release receipt is authoritative for exact OS, architecture, Node,
 Codex, image digest, and package checksums observed during clean-room
@@ -27,6 +27,8 @@ acceptance.
   for rollback.
 - Read release notes before each alpha update. Internal Codex app-server and
   Desktop IPC changes can require a new Agent Operator release.
+- Desktop and an external `codex` executable can update independently. Verify
+  the executable resolved from the worker service user with `codex --version`.
 - Native package signing and notarization are absent in alpha. Verify
   `SHA256SUMS` and release provenance before execution.
 

@@ -10,6 +10,17 @@ param(
 
 # @spec spec://modules/distribution/INFRA-004-open-source-release#environments.clean-room
 $ErrorActionPreference = "Stop"
+
+function Write-Utf8NoBom {
+  param(
+    [Parameter(Mandatory = $true)][string]$Path,
+    [Parameter(Mandatory = $true)][string]$Value
+  )
+
+  $encoding = New-Object System.Text.UTF8Encoding($false)
+  [System.IO.File]::WriteAllText($Path, $Value, $encoding)
+}
+
 $PackageZip = [System.IO.Path]::GetFullPath($PackageZip)
 $Root = [System.IO.Path]::GetFullPath($Root)
 if (Test-Path -LiteralPath $Root) { throw "Clean-room root already exists: $Root" }
@@ -22,7 +33,7 @@ $projectRoot = Join-Path $Root "fixture-project"
 $logsRoot = Join-Path $Root "logs"
 New-Item -ItemType Directory -Path $packageRoot, $projectRoot, $logsRoot -Force | Out-Null
 Expand-Archive -LiteralPath $PackageZip -DestinationPath $packageRoot
-Set-Content -LiteralPath (Join-Path $projectRoot "README.md") -Value "WINDOWS-CEDAR-731" -Encoding utf8NoBOM
+Write-Utf8NoBom -Path (Join-Path $projectRoot "README.md") -Value "WINDOWS-CEDAR-731"
 
 $manifest = Get-Content -LiteralPath (Join-Path $packageRoot "manifest.json") -Raw | ConvertFrom-Json
 if ($manifest.platform -ne "windows") { throw "Attached package is not a Windows worker" }
@@ -84,5 +95,5 @@ $receipt = [ordered]@{
   serviceInstalled = $false
 }
 $receiptPath = Join-Path $Root "clean-room-worker-receipt.json"
-$receipt | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $receiptPath -Encoding utf8NoBOM
+Write-Utf8NoBom -Path $receiptPath -Value ($receipt | ConvertTo-Json -Depth 8)
 Write-Output $receiptPath

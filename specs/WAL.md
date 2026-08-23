@@ -5,7 +5,8 @@
 ### WI-010 — clean-room acceptance и публикация
 
 - Final source version: `0.2.0-alpha`; текущая работа ведётся в
-  `codex/wi010-live-view-fix` от `9cd06e2`.
+  `codex/wi010-release-evidence` от merge revision
+  `b5c2298f3eeb65d07daca4974f9034317fe5c641`.
 - OpenAI Desktop `26.818.41509` / Codex `0.149.0-alpha.4.1` изменил follower
   start contract. Старый v1 request не находил обработчика, worker переходил в
   headless fallback, а карточка оставалась пустой до финала.
@@ -13,18 +14,36 @@
   `thread-follower-start-turn` v2 с `turnStart` envelope и ждёт принятие до
   60 секунд. Живой macOS turn показал prompt, commentary и command progress во
   время выполнения, затем вернул terminal result через read-only observer.
+- Исправление принято PR `#6`. Exact main CI run `32671718959` прошёл quality,
+  worker artifacts и macOS/Windows smoke; Security run `32671718973` прошёл
+  production dependency и repository secret gates.
 - Private `v0.2.0-alpha.0` rehearsal прошла checksum, isolated coordinator,
   macOS install/doctor, enrollment, backup/restore, restart/reconnect, task,
   follow-up, cancel и temporary file.
 - Rehearsal выявила и закрывает два release blockers: TLS allowlist сохраняет
   loopback-hosts для healthcheck; Windows PATH launcher `codex` исполняется
   через системный command processor.
-- Windows artifact checksum/manifest/Codex compatibility проверены на реальном
-  host. Enrollment и live worker blocked политикой sandbox удалённой Codex
-  сессии, запрещающей outbound network. Нужен один manual PowerShell запуск
-  exact final package на этом host после появления draft assets.
-- Далее: commit → exact CI/security → пересборка exact packages → Windows
-  manual live-view gate → public visibility →
+- Exact CI Windows artifact с checksum
+  `7f8280a09df7a75cc7530e806318118e8c7020359e3eadffc133a080fbb54a49`
+  доставлен на реальный host; manifest подтверждает version
+  `0.2.0-alpha`, platform `windows` и revision `b5c2298`. Изолированный
+  coordinator после backup обновлён до той же revision и имеет healthy public
+  endpoint.
+- Первый автономный one-shot запуск через Windows Task Scheduler дошёл до
+  clean-room runner и завершился до install/receipt. Минимальный probe
+  подтвердил: Windows PowerShell `5.1.26100.9168` отклоняет
+  `-Encoding utf8NoBOM` с `ParameterBindingException`, PowerShell `7.6.3`
+  принимает его. Portable .NET UTF-8 writer устраняет зависимость runner от
+  PowerShell 7; полный regression прогон остаётся 68/68.
+- Exact Windows worker установлен через совместимый runner и официальный Codex
+  CLI `0.149.0`. Предустановленный внешний CLI `0.114.0` отклонял актуальный
+  `config.toml`; current CLI прошёл model discovery, heartbeat и live turns.
+- Windows observer открыл целевой Codex task во время выполнения и подтвердил
+  prompt, commentary `WINDOWS_APP_DISAMBIGUATION_RUNNING_OK`, active work и
+  отсутствие writer conflict. Initial turn и два follow-up завершились
+  ожидаемыми terminal markers; Desktop rejection, headless fallback, IPC error
+  и acceptance timeout в worker log отсутствуют.
+- Далее: evidence merge → exact final rebuild и короткий package retest → public visibility →
   annotated final tag → signed draft → full exact clean-room → evidence →
   publish workflow → anonymous clone/pull/download.
 

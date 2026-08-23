@@ -1,7 +1,7 @@
 # Пустая карточка удалённой задачи после обновления Desktop
 
 Дата: 2026-08-23  
-Статус: исправлено в release candidate `0.2.0-alpha`
+Статус: исправление принято в `main`; macOS и Windows подтверждены
 
 ## Симптом
 
@@ -43,5 +43,20 @@ turn через тот же путь, что использует worker:
 4. read-only observer получил `completed` и `LIVE_VIEW_COMPLETED_OK`;
 5. конфликт writer в карточке отсутствовал.
 
-Windows live-view остаётся обязательным exact-package gate WI-010 перед
-публикацией.
+Exact revision `b5c2298f3eeb65d07daca4974f9034317fe5c641` прошла main CI и
+security workflows. Windows package из этого CI run доставлен на реальный host;
+его checksum и manifest проверены. На Windows 10 Home 25H2 с Node.js `24.13.0`,
+Codex CLI `0.149.0` и Desktop package `26.818.5229.0` worker подключился к
+изолированному coordinator той же revision и передал heartbeat.
+
+Во время Windows turn observer открыл целевой Codex task и подтвердил видимый
+prompt, commentary `WINDOWS_APP_DISAMBIGUATION_RUNNING_OK`, активную работу и
+отсутствие writer conflict. Initial turn и два follow-up завершились ожидаемыми
+terminal markers. Worker log за интервал проверки не содержал Desktop rejection,
+headless fallback, IPC error или acceptance timeout.
+
+Clean-room выявил две дополнительные границы совместимости. Windows PowerShell
+5.1 не принимает `Set-Content -Encoding utf8NoBOM`, поэтому release runner пишет
+UTF-8 без BOM через `System.Text.UTF8Encoding(false)`. Codex CLI `0.114.0` не
+читает актуальную конфигурацию Codex; Windows acceptance выполнен на официальном
+CLI `0.149.0`.

@@ -12,7 +12,7 @@ manifests, image labels и release receipt.
 | Coordinator | Linux container, `amd64` и `arm64`, Docker Compose v2 | Multi-architecture OCI build и Trivy scan на Ubuntu 24.04 |
 | macOS worker | Apple Silicon macOS с Node.js 24 | Full lifecycle smoke на `macos-26-arm64`; требуется clean-room host gate |
 | Windows worker | 64-bit Windows user session с Node.js 24 | Full lifecycle smoke на Windows Server 2025 x64; требуется clean-room host gate |
-| Codex | CLI/Desktop с `codex --version`, `codex mcp` и совместимым app-server/Desktop IPC | Точный public build фиксируется финальным clean-room receipt |
+| Codex | Актуальные официальные CLI/Desktop с `codex --version`, `codex mcp` и совместимым app-server/Desktop IPC; acceptance baseline CLI `0.149.0` | Точный public build фиксируется финальным clean-room receipt |
 
 Финальный release receipt является источником точных OS, architecture, Node,
 Codex, image digest и package checksums, наблюдавшихся при clean-room acceptance.
@@ -26,6 +26,8 @@ Codex, image digest и package checksums, наблюдавшихся при clea
   для rollback.
 - Читайте release notes перед каждым alpha update. Изменения внутреннего Codex
   app-server и Desktop IPC могут потребовать новый Agent Operator release.
+- Desktop и внешний executable `codex` могут обновляться независимо. Проверьте
+  executable из user context worker service командой `codex --version`.
 - Native package signing и notarization отсутствуют в alpha. Перед запуском
   проверяйте `SHA256SUMS` и release provenance.
 

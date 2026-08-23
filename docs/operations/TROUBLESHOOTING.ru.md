@@ -58,6 +58,14 @@ codex --version
 Windows проверьте Scheduled Task last result и current-user install root. Не
 копируйте полные logs в public issue.
 
+### Codex сообщает `error deriving config` или `unknown variant`
+
+Worker service нашёл устаревший внешний Codex CLI, который не читает актуальную
+конфигурацию Codex. Выполните `codex --version` в user context сервиса, обновите
+официальный Codex CLI, перезапустите worker service и повторите doctor. Версии
+Desktop и внешнего CLI могут различаться. Clean-room acceptance baseline этого
+релиза — Codex CLI `0.149.0`.
+
 ## Agent offline
 
 Agent становится offline после 45 секунд без heartbeat. Запустите local doctor,

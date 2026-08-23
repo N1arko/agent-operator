@@ -1,0 +1,128 @@
+{
+  "schemaVersion": 1,
+  "verifiedAt": "2026-08-23T23:37:03Z",
+  "status": "passed",
+  "sourceRevision": "b5c2298f3eeb65d07daca4974f9034317fe5c641",
+  "delivery": {
+    "pullRequest": "https://github.com/N1arko/agent-operator/pull/6",
+    "mergeCommit": "b5c2298f3eeb65d07daca4974f9034317fe5c641"
+  },
+  "automatedGates": {
+    "local": {
+      "typecheck": "passed",
+      "lintAndSpecLint": "passed",
+      "tests": {
+        "passed": 68,
+        "failed": 0
+      },
+      "productionDependencyAudit": "no known vulnerabilities"
+    },
+    "ci": {
+      "run": "https://github.com/N1arko/agent-operator/actions/runs/32671718959",
+      "headSha": "b5c2298f3eeb65d07daca4974f9034317fe5c641",
+      "status": "passed",
+      "jobs": [
+        "quality",
+        "worker-artifacts",
+        "worker-smoke (macos-latest)",
+        "worker-smoke (windows-latest)"
+      ]
+    },
+    "security": {
+      "run": "https://github.com/N1arko/agent-operator/actions/runs/32671718973",
+      "headSha": "b5c2298f3eeb65d07daca4974f9034317fe5c641",
+      "status": "passed",
+      "jobs": [
+        "production-dependencies",
+        "repository-secrets"
+      ]
+    }
+  },
+  "macosLiveView": {
+    "status": "passed",
+    "desktopVersion": "26.818.41509",
+    "codexVersion": "0.149.0-alpha.4.1",
+    "sessionReference": "retained locally and excluded from public evidence",
+    "observedWhileRunning": [
+      "prompt visible",
+      "LIVE_VIEW_RUNNING_OK commentary visible",
+      "active command visible",
+      "working indicator visible",
+      "writer conflict absent"
+    ],
+    "terminalResult": "LIVE_VIEW_COMPLETED_OK",
+    "privateScreenshotCommitted": false
+  },
+  "windowsExactPackage": {
+    "status": "passed",
+    "source": "CI run 32671718959 artifact worker-packages",
+    "sha256": "7f8280a09df7a75cc7530e806318118e8c7020359e3eadffc133a080fbb54a49",
+    "manifest": {
+      "version": "0.2.0-alpha",
+      "revision": "b5c2298f3eeb65d07daca4974f9034317fe5c641",
+      "platform": "windows"
+    },
+    "hostChecks": {
+      "packageDelivered": true,
+      "checksumVerified": true,
+      "manifestVerified": true,
+      "windows": "Windows 10 Home 25H2 build 26200.9168",
+      "desktopPackages": {
+        "OpenAI.ChatGPT-Desktop": "1.2026.190.0",
+        "OpenAI.Codex": "26.818.5229.0"
+      },
+      "codexCli": "0.149.0",
+      "node": "24.13.0",
+      "isolatedCoordinatorRevision": "b5c2298f3eeb65d07daca4974f9034317fe5c641",
+      "isolatedCoordinatorHealth": "passed",
+      "workerHeartbeat": "passed"
+    },
+    "runnerCompatibility": {
+      "firstScheduledLaunch": "failed before install and receipt",
+      "windowsPowerShell": "5.1.26100.9168",
+      "windowsPowerShellUtf8NoBom": "ParameterBindingException",
+      "powerShell": "7.6.3",
+      "powerShellUtf8NoBom": "passed",
+      "correction": "runner now writes UTF-8 without BOM through System.Text.UTF8Encoding(false)",
+      "regressionTests": "68 passed, 0 failed",
+      "staleCodexCli": {
+        "version": "0.114.0",
+        "result": "rejected current Codex configuration before turn start",
+        "correction": "installed the current official Codex CLI 0.149.0 in the isolated worker prefix"
+      }
+    },
+    "liveView": {
+      "status": "passed",
+      "sessionReference": "retained locally and excluded from public evidence",
+      "observedWhileRunning": [
+        "target Codex task visible",
+        "prompt visible",
+        "WINDOWS_APP_DISAMBIGUATION_RUNNING_OK commentary visible",
+        "active work visible",
+        "writer conflict absent"
+      ],
+      "terminalResults": [
+        "WINDOWS_LIVE_VIEW_COMPLETED_OK",
+        "WINDOWS_LIVE_VIEW_FOLLOWUP_COMPLETED_OK",
+        "WINDOWS_APP_DISAMBIGUATION_COMPLETED_OK"
+      ],
+      "workerLogChecks": {
+        "desktopRejection": "absent",
+        "headlessFallback": "absent",
+        "ipcError": "absent",
+        "acceptanceTimeout": "absent"
+      },
+      "privateScreenshotCommitted": false
+    }
+  },
+  "publicationGate": {
+    "repositoryVisibility": "private",
+    "releasePublished": false,
+    "ready": false,
+    "openRequirements": [
+      "public visibility and final annotated tag",
+      "draft artifacts and full published-artifact clean-room acceptance",
+      "anonymous clone, image pull and release download verification"
+    ]
+  }
+}

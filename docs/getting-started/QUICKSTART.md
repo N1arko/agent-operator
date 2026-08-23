@@ -10,7 +10,8 @@ value. Use release artifacts only.
 
 - Linux `amd64` or `arm64` host with Docker Engine and Docker Compose v2;
 - DNS name pointing to that host and inbound TCP 80/443;
-- macOS and Windows user sessions with Node.js 24 and `codex` on `PATH`;
+- macOS and Windows user sessions with Node.js 24 and the current official
+  `codex` on `PATH` (clean-room acceptance baseline: CLI `0.149.0`);
 - shell access to all three hosts.
 
 A private-network deployment can use the profile in the
