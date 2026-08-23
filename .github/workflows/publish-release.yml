@@ -1,0 +1,105 @@
+name: Publish accepted release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing annotated draft release tag
+        required: true
+        type: string
+      evidence_path:
+        description: Passed clean-room evidence under docs/evidence
+        required: true
+        type: string
+
+concurrency:
+  group: publish-${{ inputs.tag }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      # @spec spec://modules/distribution/INFRA-004-open-source-release#release
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - name: Verify public draft and exact tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AOP_TAG: ${{ inputs.tag }}
+          AOP_VISIBILITY: ${{ github.event.repository.visibility }}
+        run: |
+          test "$AOP_VISIBILITY" = public
+          test "$(git cat-file -t "$AOP_TAG")" = tag
+          tag_commit=$(git rev-list -n 1 "$AOP_TAG")
+          release=$(gh release view "$AOP_TAG" --json isDraft,isPrerelease,tagName)
+          test "$(jq -r .isDraft <<<"$release")" = true
+          test "$(jq -r .isPrerelease <<<"$release")" = true
+          test "$(jq -r .tagName <<<"$release")" = "$AOP_TAG"
+          echo "AOP_TAG_COMMIT=$tag_commit" >> "$GITHUB_ENV"
+      - name: Download and verify immutable draft assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AOP_TAG: ${{ inputs.tag }}
+        run: |
+          mkdir release-final
+          gh release download "$AOP_TAG" --dir release-final
+          (cd release-final && sha256sum --check SHA256SUMS)
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version-file: .node-version
+      - name: Bind passed clean-room evidence
+        env:
+          AOP_TAG: ${{ inputs.tag }}
+          AOP_EVIDENCE: ${{ inputs.evidence_path }}
+        run: |
+          node scripts/release/finalize-receipt.mjs release-final "$AOP_EVIDENCE"
+          test "$(jq -r .tag release-final/release-receipt.json)" = "$AOP_TAG"
+          test "$(jq -r .commit release-final/release-receipt.json)" = "$AOP_TAG_COMMIT"
+          rm release-final/SHA256SUMS release-final/provenance-receipt.jsonl
+      - id: attest-acceptance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-path: |
+            release-final/release-receipt.json
+            release-final/clean-room-evidence.json
+      - name: Complete final checksums and notes
+        env:
+          AOP_ATTESTATION_BUNDLE: ${{ steps.attest-acceptance.outputs.bundle-path }}
+        run: |
+          cp "$AOP_ATTESTATION_BUNDLE" release-final/provenance-receipt.jsonl
+          node scripts/release/generate-checksums.mjs release-final
+          (cd release-final && sha256sum --check SHA256SUMS)
+          GITHUB_REPOSITORY="$GITHUB_REPOSITORY" node scripts/release/create-final-release-notes.mjs release-final work/final-release-notes.md
+      - name: Publish accepted draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AOP_TAG: ${{ inputs.tag }}
+        run: |
+          gh release upload "$AOP_TAG" \
+            release-final/clean-room-evidence.json \
+            release-final/release-receipt.json \
+            release-final/provenance-receipt.jsonl \
+            release-final/SHA256SUMS \
+            --clobber
+          gh release edit "$AOP_TAG" --draft=false --prerelease --notes-file work/final-release-notes.md
+      - name: Anonymous source, download and image verification
+        env:
+          AOP_TAG: ${{ inputs.tag }}
+        run: |
+          unset GH_TOKEN GITHUB_TOKEN
+          git -c credential.helper= clone --quiet --depth 1 --branch "$AOP_TAG" "https://github.com/$GITHUB_REPOSITORY.git" anonymous-source
+          version=${AOP_TAG#v}
+          base="https://github.com/$GITHUB_REPOSITORY/releases/download/$AOP_TAG"
+          curl -fL "$base/SHA256SUMS" -o anonymous-SHA256SUMS
+          curl -fL "$base/agent-operator-self-hosted-$version.tar.gz" -o "agent-operator-self-hosted-$version.tar.gz"
+          grep "  agent-operator-self-hosted-$version.tar.gz$" anonymous-SHA256SUMS | sha256sum --check -
+          image=$(jq -r '.image.name + "@" + .image.digest' release-final/release-receipt.json)
+          docker buildx imagetools inspect "$image" >/dev/null

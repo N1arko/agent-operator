@@ -79,6 +79,7 @@ describe("worker release packages", () => {
     stores.push(store);
     const macEnrollment = store.createEnrollment({ agentId: "package-mac", agentName: "Package Mac" });
     const windowsEnrollment = store.createEnrollment({ agentId: "package-windows", agentName: "Package Windows" });
+    const windowsPathEnrollment = store.createEnrollment({ agentId: "package-windows-path", agentName: "Package Windows PATH" });
     const app = createCoordinatorApp(store, { host: "127.0.0.1", maxWaitMs: 10 });
     const server = app.listen(0, "127.0.0.1");
     servers.push(server);
@@ -126,5 +127,16 @@ describe("worker release packages", () => {
     assert.equal((await installedState(join(windowsRoot, "config", "current.json"))).version, releaseVersion);
     await run("node", [join(windowsPackage, "bin", "workerctl.mjs"), "uninstall", "--install-root", windowsRoot, "--scope", "all", "--delete-config", "--delete-state"], { ...testEnv, AOP_PLATFORM_OVERRIDE: "windows" });
     assert.equal(await readFile(join(project, "user-file.txt"), "utf8"), "keep\n");
+
+    const fakeComSpec = join(temporary, "cmd.exe");
+    await writeFile(fakeComSpec, "#!/bin/sh\necho 'codex-cli windows-path-test'\n", { mode: 0o700 });
+    await chmod(fakeComSpec, 0o700);
+    const windowsPathRoot = join(temporary, "windows-path-install");
+    const windowsPathEnv = { ...testEnv, AOP_PLATFORM_OVERRIDE: "windows", ComSpec: fakeComSpec };
+    await run("pwsh", ["-NoLogo", "-NoProfile", "-File", join(windowsPackage, "bin", "windows", "install-worker.ps1"), "-CoordinatorUrl", coordinatorUrl, "-EnrollmentCode", windowsPathEnrollment.code, "-Project", project, "-InstallRoot", windowsPathRoot, "-NoService", "-NoIntegration"], windowsPathEnv);
+    const windowsPathConfig = JSON.parse(await readFile(join(windowsPathRoot, "config", "worker.json"), "utf8")) as { codexBin: string; codexArgs: string[] };
+    assert.equal(windowsPathConfig.codexBin, fakeComSpec);
+    assert.deepEqual(windowsPathConfig.codexArgs, ["/d", "/s", "/c", "codex"]);
+    await run("node", [join(windowsPackage, "bin", "workerctl.mjs"), "doctor", "--install-root", windowsPathRoot], windowsPathEnv);
   });
 });

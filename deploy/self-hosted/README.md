@@ -13,7 +13,7 @@ exits. Set your own URL and host:
 
 ```dotenv
 AOP_PUBLIC_URL=https://operator.example.com
-AOP_ALLOWED_HOSTS=operator.example.com
+AOP_ALLOWED_HOSTS=operator.example.com,127.0.0.1,localhost
 AOP_TLS=true
 AOP_DOMAIN=operator.example.com
 ```

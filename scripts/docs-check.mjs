@@ -85,6 +85,19 @@ for (const [english, russian, tokens] of pairs) {
 }
 
 const publicSurface = [...documents.entries()].map(([path, content]) => `${path}\n${content}`).join("\n");
+const tlsAllowedHosts = "AOP_ALLOWED_HOSTS=operator.example.com,127.0.0.1,localhost";
+for (const path of [
+  "deploy/self-hosted/README.md",
+  "deploy/self-hosted/README.ru.md",
+  "docs/getting-started/QUICKSTART.md",
+  "docs/getting-started/QUICKSTART.ru.md",
+  "docs/getting-started/COORDINATOR.md",
+  "docs/getting-started/COORDINATOR.ru.md",
+]) {
+  if (!documents.get(path).includes(tlsAllowedHosts)) {
+    throw new Error(`${path} must preserve loopback hosts required by the container healthcheck`);
+  }
+}
 const privatePatterns = [
   ["claw", "vpn"].join(""),
   ["188", "241", "197", "83"].join("-"),

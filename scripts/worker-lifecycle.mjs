@@ -295,10 +295,16 @@ const projectConfig = async (args) => {
 };
 
 const verifyCodex = (args) => {
-  const codexBin = option(args, "codex-bin", "codex");
-  const codexArgs = options(args, "codex-arg");
+  const requestedBin = option(args, "codex-bin", "codex");
+  const requestedArgs = options(args, "codex-arg");
+  const requiresCommandProcessor = effectivePlatform() === "windows" &&
+    (requestedBin.toLowerCase() === "codex" || /\.(?:cmd|bat)$/i.test(requestedBin));
+  const codexBin = requiresCommandProcessor ? (process.env.ComSpec || "cmd.exe") : requestedBin;
+  const codexArgs = requiresCommandProcessor
+    ? ["/d", "/s", "/c", requestedBin, ...requestedArgs]
+    : requestedArgs;
   const result = spawnSync(codexBin, [...codexArgs, "--version"], { encoding: "utf8" });
-  if (result.status !== 0) fail(result.stderr || `Codex is unavailable: ${codexBin}`);
+  if (result.status !== 0) fail(result.stderr || `Codex is unavailable: ${requestedBin}`);
   return { codexBin, codexArgs };
 };
 
