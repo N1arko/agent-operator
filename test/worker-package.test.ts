@@ -3,7 +3,7 @@ import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
 import { afterEach, describe, it } from "node:test";
 import { chmod, cp, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { Server } from "node:http";
 import { CoordinatorStore } from "../src/coordinator/store.js";
@@ -19,6 +19,11 @@ const installedState = async (path: string): Promise<InstalledState> =>
   JSON.parse(await readFile(path, "utf8")) as InstalledState;
 
 afterEach(async () => {
+  if (process.env.AOP_OS_SERVICE_SMOKE === "1" && process.platform === "darwin") {
+    const plist = join(homedir(), "Library", "LaunchAgents", "org.agent-operator.worker.plist");
+    await execFile("launchctl", ["bootout", `gui/${process.getuid?.()}`, plist]).catch(() => undefined);
+    await rm(plist, { force: true });
+  }
   await Promise.all(servers.splice(0).map((server) => new Promise<void>((resolveClose) => server.close(() => resolveClose()))));
   for (const store of stores.splice(0)) store.close();
   await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
@@ -88,9 +93,16 @@ describe("worker release packages", () => {
     await writeFile(join(project, "user-file.txt"), "keep\n");
     const macRoot = join(temporary, "mac-install");
     const testEnv = { AOP_TEST_MODE: "1", AOP_SERVICE_MODE: "skip" };
+    const serviceSmoke = process.env.AOP_OS_SERVICE_SMOKE === "1" && process.platform === "darwin";
+    const macEnv = serviceSmoke ? { AOP_TEST_MODE: "1" } : testEnv;
+    const macServiceArguments = serviceSmoke ? [] : ["--no-service"];
 
-    await run("node", [join(macPackage, "bin", "workerctl.mjs"), "install", "--package-root", macPackage, "--install-root", macRoot, "--coordinator-url", coordinatorUrl, "--enrollment-code", macEnrollment.code, "--project", project, "--codex-bin", fakeCodex, "--no-service", "--no-integration"], testEnv);
+    await run(join(macPackage, "bin", "macos", "install.sh"), ["--install-root", macRoot, "--coordinator-url", coordinatorUrl, "--enrollment-code", macEnrollment.code, "--project", project, "--codex-bin", fakeCodex, ...macServiceArguments, "--no-integration"], macEnv);
     assert.equal(store.getAgent("package-mac")?.name, "Package Mac");
+    if (serviceSmoke) {
+      await run("launchctl", ["print", `gui/${process.getuid?.()}/org.agent-operator.worker`]);
+      await run("launchctl", ["bootout", `gui/${process.getuid?.()}`, join(homedir(), "Library", "LaunchAgents", "org.agent-operator.worker.plist")]);
+    }
     assert.equal((await stat(join(macRoot, "config", "worker.json"))).mode & 0o777, 0o600);
     await writeFile(join(macRoot, "data", "worker-state.json"), "{\"cursor\":7}\n");
     const previousVersion = "0.1.22-test";
