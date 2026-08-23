@@ -5,6 +5,7 @@ coverage/
 .env
 .env.*
 !.env.example
+!deploy/self-hosted/.env.example
 data/
 /work/
 *.log

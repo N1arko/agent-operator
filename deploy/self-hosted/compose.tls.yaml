@@ -1,0 +1,33 @@
+services:
+  caddy:
+    image: caddy:2.11.4-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648
+    restart: unless-stopped
+    depends_on:
+      coordinator:
+        condition: service_healthy
+    environment:
+      AOP_DOMAIN: ${AOP_DOMAIN:?Set AOP_DOMAIN for TLS mode}
+    ports:
+      - ${AOP_HTTP_BIND_ADDRESS:-0.0.0.0}:80:80
+      - ${AOP_HTTPS_BIND_ADDRESS:-0.0.0.0}:443:443
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    read_only: true
+    tmpfs:
+      - /config/caddy:rw,noexec,nosuid,size=8m
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: ${AOP_CADDY_MEMORY_LIMIT:-192m}
+    cpus: ${AOP_CADDY_CPU_LIMIT:-0.25}
+    networks:
+      - agent-operator
+
+volumes:
+  caddy_data:
+  caddy_config:

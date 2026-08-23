@@ -8,6 +8,5 @@ deploy/backups
 work
 .env
 .env.*
-!deploy/.env.example
+!deploy/self-hosted/.env.example
 release/*
-!release/agent-operator-worker-0.1.23.zip

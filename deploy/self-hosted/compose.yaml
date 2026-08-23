@@ -1,0 +1,45 @@
+name: agent-operator
+
+services:
+  # @spec spec://modules/distribution/INFRA-004-open-source-release#deployment
+  coordinator:
+    image: ${AOP_IMAGE:-agent-operator-coordinator:local}
+    restart: unless-stopped
+    init: true
+    user: ${AOP_UID:-1000}:${AOP_GID:-1000}
+    environment:
+      AOP_HOST: 0.0.0.0
+      AOP_PORT: 8787
+      AOP_DATA_DIR: /data
+      AOP_PUBLIC_URL: ${AOP_PUBLIC_URL:?Set AOP_PUBLIC_URL in .env}
+      AOP_ALLOWED_HOSTS: ${AOP_ALLOWED_HOSTS:?Set AOP_ALLOWED_HOSTS in .env}
+      AOP_REQUEST_LEASE_MS: ${AOP_REQUEST_LEASE_MS:-7200000}
+    volumes:
+      - ./data:/data
+    ports:
+      - ${AOP_BIND_ADDRESS:-127.0.0.1}:${AOP_HTTP_PORT:-8787}:8787
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: ${AOP_MEMORY_LIMIT:-512m}
+    cpus: ${AOP_CPU_LIMIT:-0.75}
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - fetch('http://127.0.0.1:8787/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))
+      interval: 15s
+      timeout: 5s
+      start_period: 10s
+      retries: 5
+    networks:
+      - agent-operator
+
+networks:
+  agent-operator:
+    name: ${AOP_NETWORK_NAME:-agent-operator}

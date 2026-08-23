@@ -17,7 +17,7 @@ afterEach(() => {
 
 describe("aopctl", () => {
   // @spec spec://modules/coordinator/FEAT-007-device-enrollment#contracts.cli
-  it("creates, lists and revokes an enrolled device without exposing tokens", () => {
+  it("creates, lists and revokes an enrolled device without exposing tokens", async () => {
     const dataDir = mkdtempSync(join(tmpdir(), "aopctl-"));
     directories.push(dataDir);
     const env = {
@@ -33,7 +33,7 @@ describe("aopctl", () => {
     };
 
     assert.equal(
-      runAopctl(
+      await runAopctl(
         ["device", "create", "--id", "studio-mac", "--name", "Studio Mac"],
         env,
         output,
@@ -67,7 +67,7 @@ describe("aopctl", () => {
     store.close();
 
     stdout.length = 0;
-    assert.equal(runAopctl(["device", "list", "--json"], env, output), 0);
+    assert.equal(await runAopctl(["device", "list", "--json"], env, output), 0);
     const listingOutput = stdout[0] ?? "[]";
     const listed = JSON.parse(listingOutput) as Array<{
       agentId: string;
@@ -89,7 +89,10 @@ describe("aopctl", () => {
     assert.equal(listingOutput.includes("legacy-safe-token-value"), false);
 
     stdout.length = 0;
-    assert.equal(runAopctl(["device", "revoke", "studio-mac"], env, output), 0);
+    assert.equal(
+      await runAopctl(["device", "revoke", "studio-mac"], env, output),
+      0,
+    );
     const reopened = new CoordinatorStore(
       join(dataDir, "coordinator.sqlite"),
       undefined,
@@ -102,7 +105,7 @@ describe("aopctl", () => {
     assert.deepEqual(stderr, []);
   });
 
-  it("revokes an unused enrollment by its opaque ID", () => {
+  it("revokes an unused enrollment by its opaque ID", async () => {
     const dataDir = mkdtempSync(join(tmpdir(), "aopctl-enrollment-"));
     directories.push(dataDir);
     const stdout: string[] = [];
@@ -112,7 +115,7 @@ describe("aopctl", () => {
     };
     const env = { AOP_DATA_DIR: dataDir };
     assert.equal(
-      runAopctl(
+      await runAopctl(
         ["device", "create", "--id", "windows-pc", "--name", "Windows PC"],
         env,
         output,
@@ -122,7 +125,7 @@ describe("aopctl", () => {
     const enrollmentId = stdout[0]?.match(/^Enrollment ID: (.+)$/m)?.[1];
     assert.ok(enrollmentId);
     assert.equal(
-      runAopctl(["enrollment", "revoke", enrollmentId], env, output),
+      await runAopctl(["enrollment", "revoke", enrollmentId], env, output),
       0,
     );
   });

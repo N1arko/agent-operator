@@ -2,8 +2,9 @@
 
 ## Простыми словами {#plain-language}
 
-Coordinator постоянно работает на VPS `clawvpn`, принимает HTTPS-запросы,
-хранит SQLite и временные файлы, ежедневно создаёт проверяемый backup.
+Coordinator постоянно работает на выбранном владельцем Docker host, принимает
+HTTPS либо private-network запросы, хранит SQLite и временные файлы и создаёт
+проверяемые backup bundles.
 
 ## 1. Цель {#goal}
 
@@ -19,70 +20,76 @@ healthcheck, сохранением данных, rollback и восстанов
 
 ## 3. Окружение {#environment}
 
-- Host: SSH alias `clawvpn`.
-- Runtime: Docker Compose, Node.js coordinator image.
-- Edge: Caddy с доверенным HTTPS.
-- State: persistent data directory с SQLite и temporary files.
-- Backup: systemd service/timer, согласованный SQLite snapshot, retention семь
-  дней.
+- Host: Linux Docker host на заявленной release support matrix.
+- Runtime: version-pinned coordinator image и Docker Compose.
+- Edge: optional Caddy profile с automatic HTTPS либо operator-controlled
+  private network/reverse proxy.
+- State: bind-mounted data directory с SQLite, credential key, temporary files
+  и backup bundles.
+- Operator: локальный `aopctl` через one-shot container того же image.
 
-Существующие сервисы VPS сохраняют свои порты и volumes.
+Конкретный hostname, domain, public IP, device identities и absolute paths
+принадлежат deployment владельца и отсутствуют в generic templates.
 
 ## 4. Канонические решения {#decisions}
 
-- VPS выполняет только coordination и хранение небольших временных файлов.
+- Host выполняет только coordination и хранение небольших временных файлов.
 - SQLite соответствует текущей нагрузке и простому recovery.
 - Локальный disk соответствует текущим quota и TTL.
 - Новое хранилище добавляется после измеренной потребности.
 
 ## 5. Runtime и операции {#runtime}
 
-Compose запускает coordinator и Caddy. `/health` сообщает status и version.
-Cleanup expired files выполняется на heartbeat и файловых операциях. Backup
-timer работает независимо от приложения.
+Base Compose запускает coordinator на явно заданном bind address. TLS overlay
+добавляет Caddy. `/health` сообщает status, version и source revision. Cleanup
+expired files выполняется на heartbeat и файловых операциях. `aopctl` создаёт
+enrollment, проверяет runtime и управляет backup/restore.
 
 ## 6. Данные и миграции {#data}
 
 Data directory переживает container replacement. Startup выполняет совместимые
-schema additions. Перед rollout создаётся snapshot; restore останавливает
-запись, заменяет базу согласованной копией и запускает health/E2E проверки.
+schema additions. Credential key хранится с owner-only permissions. Backup
+связывает согласованный SQLite snapshot, credential key, checksums и manifest.
+Restore требует остановленного coordinator, проверяет integrity/checksums,
+сохраняет pre-restore bundle и атомарно заменяет state.
 
 ## 7. Контракты {#contracts}
 
-- Production HTTPS endpoint.
+- Operator-selected HTTPS либо private-network endpoint.
 - `GET /health`.
 - Compose service и volume contract.
-- systemd backup service/timer.
-- Операторские команды из `docs/OPERATIONS.md`.
+- `aopctl device`, `doctor` и `backup` commands.
+- Операторские команды из public self-hosted documentation.
 
 ## 8. Rollout и восстановление {#rollout}
 
-1. Проверить конфигурацию и свободные ресурсы.
-2. Создать snapshot.
-3. Собрать и запустить новую версию.
+1. Проверить Compose config, data permissions и свободные ресурсы.
+2. Создать проверенный backup bundle.
+3. Получить immutable image digest и запустить новую версию.
 4. Проверить health, MCP и heartbeat обоих worker.
-5. При сбое вернуть предыдущий image и совместимую базу.
+5. При сбое вернуть предыдущий image и pre-rollout backup bundle.
 6. После restore выполнить вертикальный запрос.
 
 ## 9. Наблюдаемость {#observability}
 
-Health version, container state/logs, backup timer, snapshot integrity,
-heartbeat и queue state. Последний подтверждённый production E2E:
-`docs/E2E_RELEASE_0.1.18.md`.
+Health version/revision, container state/logs, backup manifest/integrity,
+heartbeat и queue state. Personal production evidence остаётся historical и не
+задаёт generic deployment values.
 
 ## 10. Трассировка реализации {#traceability}
 
-- `deploy/**`
+- `deploy/self-hosted/**`
 - `src/coordinator/main.ts`, `src/coordinator/server.ts`
-- `docs/DEPLOYMENT_CLAWVPN.md`, `docs/OPERATIONS.md`
+- public self-hosted operations documentation
 
 ## 11. Критерии готовности {#acceptance}
 
-- Coordinator восстанавливается после host/container restart.
-- Health доступен по HTTPS.
-- SQLite и temporary directory persistent.
-- Ежедневный snapshot создаётся и проходит integrity check.
-- Mac и Windows heartbeat наблюдаемы после rollout.
+- Fresh Docker host запускает coordinator без изменения source files.
+- Health доступен в выбранном HTTPS/private-network profile.
+- SQLite, credential key и temporary directory persistent.
+- Backup bundle проходит checksums и SQLite integrity; restore возвращает
+  devices, queue и schema.
+- Enrollment, restart и rollback выполняются documented operator commands.
 
 ## 12. Связи {#relations}
 
@@ -90,4 +97,6 @@ heartbeat и queue state. Последний подтверждённый produc
 
 ## 13. История изменений {#changelog}
 
+- [2026-08-23] Runtime канон переведён с personal VPS profile на generic
+  self-hosted deployment с versioned image, `aopctl` и manifest backup.
 - [2026-07-28] Сведены AOP-080–085 и AOP-091.

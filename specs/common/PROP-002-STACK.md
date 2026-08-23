@@ -24,8 +24,9 @@ pnpm.
 ## 3. Окружения {#environments}
 
 - Development: локальные процессы, временная SQLite и тестовые identities.
-- Production coordinator: Docker Compose на SSH-host `clawvpn`, Caddy TLS,
-  persistent data directory и systemd backup timer.
+- Self-hosted coordinator: versioned image и Docker Compose на Linux host,
+  optional Caddy TLS/private-network profile, persistent data directory и
+  operator-controlled backup schedule.
 - macOS worker: LaunchAgent в пользовательской сессии.
 - Windows worker: Scheduled Task в пользовательской сессии.
 
@@ -35,12 +36,13 @@ Worker создаёт только исходящие HTTPS-соединения
 
 ## 4. Деплой и восстановление {#deploy}
 
-- Coordinator собирается Dockerfile и выкладывается рядом с существующими
-  сервисами через Compose.
+- Coordinator image собирается release pipeline; generic Compose принимает
+  image reference, URL/domain и bind settings через `.env`.
 - Перед изменением production базы создаётся SQLite snapshot.
 - Health endpoint и версии обоих worker проверяются после rollout.
 - Windows bundle имеет SHA-256 и сохраняет предыдущую версию для отката.
-- Подробный порядок находится в `docs/OPERATIONS.md`.
+- Public порядок находится в self-hosted operations documentation; personal
+  deployment notes сохраняются как historical evidence.
 
 ## 5. Наблюдаемость {#observability}
 
@@ -51,4 +53,5 @@ agent, длина очереди, stdout/stderr worker и результаты E
 
 ## 6. История изменений {#changelog}
 
+- [2026-08-23] Coordinator environment обобщён до self-hosted Docker runtime.
 - [2026-07-28] Зафиксирован production-контур версии 0.1.18.

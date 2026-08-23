@@ -15,6 +15,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "build:production": "tsc -p tsconfig.production.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint . && node scripts/spec-lint.mjs",
     "spec:lint": "node scripts/spec-lint.mjs",

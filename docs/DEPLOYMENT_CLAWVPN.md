@@ -1,5 +1,9 @@
 # Deployment target: clawvpn
 
+> Historical private profile линии 0.1. Его exact deployment files доступны в
+> tag `v0.1.23`. Новые установки используют `deploy/self-hosted`; порядок
+> перехода описан в `docs/migrations/0.1.23-to-generic-coordinator.md`.
+
 Профиль снят по SSH и deployment выполнен 2026-07-26.
 
 ## 1. Назначение
@@ -153,7 +157,7 @@ Coordinator доступен внутри Docker network на `8787`. В инт�
 
 ## 9. Backup
 
-Скрипт `deploy/backup.sh` создаёт согласованный SQLite snapshot, проверяет его
+Скрипт `deploy/backup.sh` в tag `v0.1.23` создаёт согласованный SQLite snapshot, проверяет его
 через `PRAGMA integrity_check` и хранит ежедневные копии семь дней. Systemd
 timer `agent-operator-backup.timer` запускает скрипт ежедневно.
 

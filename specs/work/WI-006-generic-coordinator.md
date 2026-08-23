@@ -1,7 +1,7 @@
 # WI-006: Выпустить generic self-hosted coordinator
 
-- Kind: `implement`
-- Canon action: `none`
+- Kind: `migration`
+- Canon action: `direct-edit`
 
 ## Outcome
 
@@ -12,6 +12,7 @@
 - Governing: `spec://modules/distribution/INFRA-004-open-source-release#deployment`
 - Governing: `spec://modules/coordinator/INFRA-001-coordinator-runtime#root`
 - Constraint: `spec://modules/coordinator/FEAT-007-device-enrollment#contracts.cli`
+- Affected: `spec://common/PROP-002-STACK#environments`
 
 ## Scope
 

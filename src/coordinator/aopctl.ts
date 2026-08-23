@@ -1,5 +1,8 @@
+import { statSync } from "node:fs";
 import { join } from "node:path";
 import { parseTokenMap } from "../shared/env.js";
+import { APP_REVISION, APP_VERSION } from "../shared/version.js";
+import { createBackup, restoreBackup } from "./backup.js";
 import { loadOrCreateCredentialKey } from "./credential-key.js";
 import { CoordinatorStore } from "./store.js";
 
@@ -27,7 +30,10 @@ const usage = `Usage:
   aopctl device create --id AGENT_ID --name "Device name"
   aopctl device list [--json]
   aopctl device revoke AGENT_ID
-  aopctl enrollment revoke CODE_ID`;
+  aopctl enrollment revoke CODE_ID
+  aopctl doctor [--json] [--offline]
+  aopctl backup create [--output DIRECTORY]
+  aopctl backup restore MANIFEST --confirm-stopped`;
 
 // @spec spec://modules/coordinator/FEAT-007-device-enrollment#contracts.cli
 export const runAopctl = (
@@ -37,15 +43,32 @@ export const runAopctl = (
     stdout: (value) => console.log(value),
     stderr: (value) => console.error(value),
   },
-): number => {
+): Promise<number> => {
   const dataDir = env.AOP_DATA_DIR ?? "./data";
-  const store = new CoordinatorStore(
-    join(dataDir, "coordinator.sqlite"),
-    undefined,
-    loadOrCreateCredentialKey(join(dataDir, "credential.key")),
-  );
-  try {
+  let store: CoordinatorStore | null = null;
+  return (async () => {
+    try {
     const [resource, action, ...rest] = args;
+    if (resource === "backup" && action === "restore") {
+      const manifestPath = rest[0];
+      if (!manifestPath || manifestPath.startsWith("--")) {
+        throw new Error(usage);
+      }
+      const result = await restoreBackup(
+        dataDir,
+        manifestPath,
+        rest.includes("--confirm-stopped"),
+      );
+      output.stdout(JSON.stringify(result, null, 2));
+      return 0;
+    }
+
+    const keyPath = join(dataDir, "credential.key");
+    store = new CoordinatorStore(
+      join(dataDir, "coordinator.sqlite"),
+      undefined,
+      loadOrCreateCredentialKey(keyPath),
+    );
     if (resource === "device" && action === "create") {
       const agentId = flag(rest, "--id");
       const agentName = flag(rest, "--name");
@@ -70,7 +93,7 @@ export const runAopctl = (
         : new Map<string, string>();
       const legacyAgentIds = [...new Set(legacyTokens.values())].sort();
       const legacy = legacyAgentIds.map((agentId) => {
-        const agent = store.getAgentRuntime(agentId);
+        const agent = store?.getAgentRuntime(agentId);
         return {
           agentId,
           agentName: agent?.name ?? agentId,
@@ -133,15 +156,80 @@ export const runAopctl = (
       return 0;
     }
 
+    if (resource === "backup" && action === "create") {
+      const outputDirectory = flag(rest, "--output");
+      const manifest = await createBackup(
+        store,
+        dataDir,
+        outputDirectory ?? undefined,
+      );
+      output.stdout(manifest);
+      return 0;
+    }
+
+    if (resource === "doctor") {
+      const doctorOptions = [action, ...rest].filter(
+        (value): value is string => value !== undefined,
+      );
+      const integrity = store.db.prepare("PRAGMA integrity_check").get() as {
+        integrity_check: string;
+      };
+      const tables = (
+        store.db
+          .prepare(
+            `SELECT name FROM sqlite_master
+             WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
+             ORDER BY name`,
+          )
+          .all() as Array<{ name: string }>
+      ).map((row) => row.name);
+      const keyMode = statSync(keyPath).mode & 0o777;
+      let health: unknown = null;
+      if (!doctorOptions.includes("--offline") && env.AOP_PUBLIC_URL) {
+        const response = await fetch(`${publicUrl(env).replace(/\/$/, "")}/health`, {
+          signal: AbortSignal.timeout(5_000),
+        });
+        if (!response.ok) throw new Error(`Health returned HTTP ${response.status}`);
+        health = await response.json();
+      }
+      const result = {
+        ok: integrity.integrity_check === "ok" && keyMode === 0o600,
+        version: APP_VERSION,
+        revision: APP_REVISION,
+        sqliteIntegrity: integrity.integrity_check,
+        credentialKeyMode: keyMode.toString(8).padStart(3, "0"),
+        tables,
+        devices: store.listDevices().length,
+        health,
+      };
+      if (doctorOptions.includes("--json")) {
+        output.stdout(JSON.stringify(result, null, 2));
+      } else {
+        output.stdout(
+          [
+            `Status: ${result.ok ? "ok" : "failed"}`,
+            `Version: ${result.version}`,
+            `Revision: ${result.revision}`,
+            `SQLite: ${result.sqliteIntegrity}`,
+            `Credential key mode: ${result.credentialKeyMode}`,
+            `Devices: ${result.devices}`,
+            `Health: ${health === null ? "not checked" : "ok"}`,
+          ].join("\n"),
+        );
+      }
+      return result.ok ? 0 : 1;
+    }
+
     throw new Error(usage);
-  } catch (error) {
-    output.stderr(error instanceof Error ? error.message : String(error));
-    return 1;
-  } finally {
-    store.close();
-  }
+    } catch (error) {
+      output.stderr(error instanceof Error ? error.message : String(error));
+      return 1;
+    } finally {
+      store?.close();
+    }
+  })();
 };
 
 if (import.meta.url === new URL(process.argv[1] ?? "", "file:").href) {
-  process.exitCode = runAopctl(process.argv.slice(2));
+  process.exitCode = await runAopctl(process.argv.slice(2));
 }

@@ -8,7 +8,7 @@ import {
   PublishResultSchema,
   PublishUpdateSchema,
 } from "../shared/protocol.js";
-import { APP_VERSION } from "../shared/version.js";
+import { APP_REVISION, APP_VERSION } from "../shared/version.js";
 import { createMcpServer } from "./mcp.js";
 import { EnrollmentDeniedError, type CoordinatorStore } from "./store.js";
 import {
@@ -188,7 +188,11 @@ export const createCoordinatorApp = (
   };
 
   app.get("/health", (_request, response) => {
-    response.json({ status: "ok", version: APP_VERSION });
+    response.json({
+      status: "ok",
+      version: APP_VERSION,
+      revision: APP_REVISION,
+    });
   });
 
   app.get("/v1/onboarding/worker.zip", authenticate, (_request, response) => {

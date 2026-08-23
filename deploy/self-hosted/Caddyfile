@@ -1,0 +1,4 @@
+{$AOP_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy coordinator:8787
+}
