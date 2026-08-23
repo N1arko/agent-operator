@@ -20,6 +20,7 @@
     "spec:lint": "node scripts/spec-lint.mjs",
     "test": "pnpm build && node --test dist/test/**/*.test.js",
     "coordinator": "node dist/src/coordinator/main.js",
+    "aopctl": "node dist/src/coordinator/aopctl.js",
     "worker": "node dist/src/worker/main.js",
     "diagnose": "node dist/src/worker/main.js diagnose"
   },

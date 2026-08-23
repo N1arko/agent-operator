@@ -189,6 +189,30 @@ export const HeartbeatSchema = z.object({
 });
 export type Heartbeat = z.infer<typeof HeartbeatSchema>;
 
+export const AgentIdSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(64)
+  .regex(/^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$/, "Invalid agent ID");
+
+export const AgentNameSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(80)
+  .refine((value) => !hasControlCharacter(value), "Invalid agent name");
+
+// @spec spec://modules/coordinator/FEAT-007-device-enrollment#contracts.enroll
+export const EnrollmentConsumeSchema = z
+  .object({
+    code: z.string().min(20).max(128),
+    platform: z.enum(["macos", "windows", "linux", "unknown"]),
+    workerVersion: z.string().trim().min(1).max(64),
+  })
+  .strict();
+export type EnrollmentConsume = z.infer<typeof EnrollmentConsumeSchema>;
+
 export const PublishResultSchema = z.object({
   rootMessageId: z.uuid(),
   replyTo: z.uuid(),

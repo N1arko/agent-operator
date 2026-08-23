@@ -11,6 +11,7 @@ import {
   type ProgressUpdate,
   type TemporaryFileAttachment,
 } from "../shared/protocol.js";
+import { APP_VERSION } from "../shared/version.js";
 import type {
   LocalThread,
   TurnHandle,
@@ -952,7 +953,7 @@ export class Worker {
         null,
       currentActivity: this.active?.activity ?? null,
       projects: descriptors,
-      workerVersion: "0.1.23",
+      workerVersion: APP_VERSION,
     });
   }
 }

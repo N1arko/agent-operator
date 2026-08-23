@@ -1,12 +1,15 @@
 import { join } from "node:path";
 import { createCoordinatorApp } from "./server.js";
 import { CoordinatorStore } from "./store.js";
-import { parseTokenMap, requiredEnv } from "../shared/env.js";
+import { parseTokenMap } from "../shared/env.js";
+import { loadOrCreateCredentialKey } from "./credential-key.js";
 
 const host = process.env.AOP_HOST ?? "127.0.0.1";
 const port = Number(process.env.AOP_PORT ?? 8787);
 const dataDir = process.env.AOP_DATA_DIR ?? "./data";
-const tokens = parseTokenMap(requiredEnv("AOP_DEVICE_TOKENS"));
+const tokens = process.env.AOP_DEVICE_TOKENS
+  ? parseTokenMap(process.env.AOP_DEVICE_TOKENS)
+  : new Map<string, string>();
 const allowedHosts = process.env.AOP_ALLOWED_HOSTS?.split(",")
   .map((value) => value.trim())
   .filter(Boolean);
@@ -20,6 +23,7 @@ if (!Number.isSafeInteger(requestLeaseMs) || requestLeaseMs < 60_000) {
 const store = new CoordinatorStore(
   join(dataDir, "coordinator.sqlite"),
   requestLeaseMs,
+  loadOrCreateCredentialKey(join(dataDir, "credential.key")),
 );
 const app = createCoordinatorApp(store, {
   host,

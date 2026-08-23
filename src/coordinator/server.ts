@@ -1,15 +1,16 @@
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js";
 import express from "express";
 import type { Express, NextFunction, Request, Response } from "express";
 import { createReadStream, existsSync } from "node:fs";
 import {
+  EnrollmentConsumeSchema,
   HeartbeatSchema,
   PublishResultSchema,
   PublishUpdateSchema,
 } from "../shared/protocol.js";
+import { APP_VERSION } from "../shared/version.js";
 import { createMcpServer } from "./mcp.js";
-import type { CoordinatorStore } from "./store.js";
+import { EnrollmentDeniedError, type CoordinatorStore } from "./store.js";
 import {
   acknowledgeTemporaryFile,
   cleanupExpiredTemporaryFiles,
@@ -22,13 +23,18 @@ import {
 export type CoordinatorServerOptions = {
   host: string;
   allowedHosts?: string[];
-  tokens: Map<string, string>;
+  tokens?: Map<string, string>;
   maxWaitMs?: number;
   workerBundlePath?: string;
   temporaryFileDirectory?: string;
   temporaryFileMaxBytes?: number;
   temporaryFileQuotaBytes?: number;
   temporaryFileTtlMs?: number;
+  enrollmentRateLimit?: {
+    windowMs: number;
+    perIpFailures: number;
+    globalFailures: number;
+  };
 };
 
 const bearerToken = (request: Request): string | null => {
@@ -41,10 +47,104 @@ export const createCoordinatorApp = (
   store: CoordinatorStore,
   options: CoordinatorServerOptions,
 ): Express => {
-  const app = createMcpExpressApp({
-    host: options.host,
-    ...(options.allowedHosts ? { allowedHosts: options.allowedHosts } : {}),
-  });
+  const app = express();
+  const allowedHosts =
+    options.allowedHosts ??
+    (["127.0.0.1", "localhost", "[::1]"].includes(options.host)
+      ? ["127.0.0.1", "localhost", "[::1]"]
+      : null);
+  if (allowedHosts) {
+    app.use((request, response, next) => {
+      const host = request.headers.host;
+      try {
+        const hostname = host ? new URL(`http://${host}`).hostname : null;
+        if (!hostname || !allowedHosts.includes(hostname)) {
+          response.status(403).json({ error: "invalid_host" });
+          return;
+        }
+      } catch {
+        response.status(403).json({ error: "invalid_host" });
+        return;
+      }
+      next();
+    });
+  }
+  const enrollmentFailures: Array<{ ip: string; at: number }> = [];
+  const enrollmentLimit = options.enrollmentRateLimit ?? {
+    windowMs: 60_000,
+    perIpFailures: 8,
+    globalFailures: 100,
+  };
+  const trimEnrollmentFailures = (now: number): void => {
+    const threshold = now - enrollmentLimit.windowMs;
+    while (
+      enrollmentFailures[0]?.at !== undefined &&
+      enrollmentFailures[0].at <= threshold
+    ) {
+      enrollmentFailures.shift();
+    }
+  };
+  const enrollmentIsLimited = (ip: string, now: number): boolean => {
+    trimEnrollmentFailures(now);
+    return (
+      enrollmentFailures.length >= enrollmentLimit.globalFailures ||
+      enrollmentFailures.filter((failure) => failure.ip === ip).length >=
+        enrollmentLimit.perIpFailures
+    );
+  };
+  const recordEnrollmentFailure = (ip: string): void => {
+    const now = Date.now();
+    trimEnrollmentFailures(now);
+    enrollmentFailures.push({ ip, at: now });
+  };
+
+  // @spec spec://modules/coordinator/FEAT-007-device-enrollment#contracts.enroll
+  app.post(
+    "/v1/enrollment/consume",
+    express.json({ limit: "4kb", strict: true }),
+    (request, response) => {
+      const ip = request.ip || request.socket.remoteAddress || "unknown";
+      if (enrollmentIsLimited(ip, Date.now())) {
+        response.status(429).json({ error: "enrollment_denied" });
+        return;
+      }
+      const parsed = EnrollmentConsumeSchema.safeParse(request.body);
+      if (!parsed.success) {
+        recordEnrollmentFailure(ip);
+        response.status(400).json({ error: "enrollment_denied" });
+        return;
+      }
+      if (parsed.data.workerVersion !== APP_VERSION) {
+        recordEnrollmentFailure(ip);
+        response.status(409).json({
+          error: "incompatible_worker",
+          coordinatorVersion: APP_VERSION,
+        });
+        return;
+      }
+      try {
+        const grant = store.consumeEnrollment(parsed.data);
+        response.status(201).json({
+          agentId: grant.agentId,
+          agentName: grant.agentName,
+          deviceToken: grant.deviceToken,
+          compatibility: {
+            coordinatorVersion: APP_VERSION,
+            workerVersion: APP_VERSION,
+          },
+        });
+      } catch (error) {
+        if (error instanceof EnrollmentDeniedError) {
+          recordEnrollmentFailure(ip);
+          response.status(403).json({ error: "enrollment_denied" });
+          return;
+        }
+        console.error("[coordinator] enrollment storage failure");
+        response.status(503).json({ error: "enrollment_unavailable" });
+      }
+    },
+  );
+  app.use(express.json());
   const temporaryFileDirectory =
     options.temporaryFileDirectory ?? "./data/files";
   const temporaryFileMaxBytes =
@@ -66,7 +166,19 @@ export const createCoordinatorApp = (
     next: NextFunction,
   ): void => {
     const token = bearerToken(request);
-    const agentId = token ? options.tokens.get(token) : undefined;
+    const persistent = token
+      ? store.authenticateDevice(token)
+      : { status: "not_found" as const };
+    if (persistent.status === "revoked") {
+      response.status(401).json({ error: "device_revoked" });
+      return;
+    }
+    const agentId =
+      persistent.status === "active"
+        ? persistent.agentId
+        : token
+          ? options.tokens?.get(token)
+          : undefined;
     if (!agentId) {
       response.status(401).json({ error: "unauthorized" });
       return;
@@ -76,7 +188,7 @@ export const createCoordinatorApp = (
   };
 
   app.get("/health", (_request, response) => {
-    response.json({ status: "ok", version: "0.1.23" });
+    response.json({ status: "ok", version: APP_VERSION });
   });
 
   app.get("/v1/onboarding/worker.zip", authenticate, (_request, response) => {
@@ -88,7 +200,7 @@ export const createCoordinatorApp = (
     response.type("application/zip");
     response.setHeader(
       "content-disposition",
-      'attachment; filename="agent-operator-worker-0.1.23.zip"',
+      `attachment; filename="agent-operator-worker-${APP_VERSION}.zip"`,
     );
     createReadStream(path).pipe(response);
   });
@@ -352,7 +464,7 @@ export const createCoordinatorApp = (
   app.use(
     (
       error: unknown,
-      _request: Request,
+      request: Request,
       response: Response,
       next: NextFunction,
     ) => {
@@ -362,6 +474,14 @@ export const createCoordinatorApp = (
         "type" in error &&
         error.type === "entity.too.large"
       ) {
+        if (request.path === "/v1/enrollment/consume") {
+          response.status(413).json({ error: "enrollment_denied" });
+          return;
+        }
+        if (!request.path.startsWith("/v1/files")) {
+          response.status(413).json({ error: "payload_too_large" });
+          return;
+        }
         response.status(413).json({
           error: `Temporary file exceeds ${temporaryFileMaxBytes} bytes`,
         });

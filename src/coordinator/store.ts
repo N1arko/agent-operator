@@ -1,6 +1,6 @@
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import { randomUUID } from "node:crypto";
+import { createHmac, randomBytes, randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import type {
   AgentDescriptor,
@@ -11,6 +11,8 @@ import type {
   ProjectDescriptor,
   TemporaryFileAttachment,
 } from "../shared/protocol.js";
+import { AgentIdSchema, AgentNameSchema } from "../shared/protocol.js";
+import { assertCredentialKey } from "./credential-key.js";
 
 type MessageRow = {
   seq: number;
@@ -44,6 +46,7 @@ type AgentRow = {
   state: AgentDescriptor["state"];
   current_project_id: string | null;
   current_activity: string | null;
+  worker_version: string;
   last_seen_at: string;
 };
 
@@ -73,13 +76,88 @@ export type TemporaryFileRecord = {
   createdAt: string;
 };
 
+type EnrollmentCodeRow = {
+  id: string;
+  code_hash: string;
+  agent_id: string;
+  agent_name: string;
+  expires_at: string;
+  consumed_at: string | null;
+  revoked_at: string | null;
+  created_at: string;
+};
+
+type DeviceCredentialRow = {
+  id: string;
+  agent_id: string;
+  agent_name: string;
+  token_hash: string;
+  token_hint: string;
+  platform: "macos" | "windows" | "linux" | "unknown";
+  enrolled_worker_version: string;
+  created_at: string;
+  last_used_at: string | null;
+  revoked_at: string | null;
+};
+
+export type EnrollmentGrant = {
+  enrollmentId: string;
+  agentId: string;
+  agentName: string;
+  code: string;
+  expiresAt: string;
+  createdAt: string;
+};
+
+export type DeviceCredentialGrant = {
+  agentId: string;
+  agentName: string;
+  deviceToken: string;
+  tokenHint: string;
+  createdAt: string;
+};
+
+export type DeviceRecord = {
+  agentId: string;
+  agentName: string;
+  source: "enrolled";
+  status: "active" | "revoked";
+  tokenHint: string;
+  platform: DeviceCredentialRow["platform"];
+  workerVersion: string;
+  lastSeenAt: string | null;
+  lastUsedAt: string | null;
+  enrolledAt: string;
+  revokedAt: string | null;
+};
+
+export type DeviceAuthentication =
+  | { status: "active"; agentId: string }
+  | { status: "revoked" }
+  | { status: "not_found" };
+
+export class EnrollmentConflictError extends Error {}
+export class EnrollmentDeniedError extends Error {
+  constructor() {
+    super("Enrollment denied");
+  }
+}
+
 export class CoordinatorStore {
   readonly db: DatabaseSync;
+  private readonly credentialKey: Buffer;
 
   constructor(
     path: string,
     private readonly requestLeaseMs = 2 * 60 * 60 * 1_000,
+    credentialKey?: Uint8Array,
   ) {
+    if (!credentialKey && path !== ":memory:") {
+      throw new Error("Persistent CoordinatorStore requires a credential key");
+    }
+    this.credentialKey = Buffer.from(
+      assertCredentialKey(credentialKey ?? randomBytes(32)),
+    );
     if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
     this.db = new DatabaseSync(path);
     this.db.exec("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;");
@@ -148,6 +226,34 @@ export class CoordinatorStore {
       );
       CREATE INDEX IF NOT EXISTS temporary_files_expiry
         ON temporary_files(expires_at);
+      CREATE TABLE IF NOT EXISTS enrollment_codes (
+        id TEXT PRIMARY KEY,
+        code_hash TEXT UNIQUE NOT NULL,
+        agent_id TEXT NOT NULL,
+        agent_name TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        consumed_at TEXT,
+        revoked_at TEXT,
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS enrollment_codes_agent
+        ON enrollment_codes(agent_id, expires_at);
+      CREATE TABLE IF NOT EXISTS device_credentials (
+        id TEXT PRIMARY KEY,
+        enrollment_id TEXT UNIQUE NOT NULL,
+        agent_id TEXT NOT NULL,
+        agent_name TEXT NOT NULL,
+        token_hash TEXT UNIQUE NOT NULL,
+        token_hint TEXT NOT NULL,
+        platform TEXT NOT NULL,
+        enrolled_worker_version TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        last_used_at TEXT,
+        revoked_at TEXT,
+        FOREIGN KEY (enrollment_id) REFERENCES enrollment_codes(id)
+      );
+      CREATE INDEX IF NOT EXISTS device_credentials_agent
+        ON device_credentials(agent_id, revoked_at);
     `);
     const messageColumns = this.db
       .prepare("PRAGMA table_info(messages)")
@@ -256,6 +362,213 @@ export class CoordinatorStore {
     `);
   }
 
+  // @spec spec://modules/coordinator/FEAT-007-device-enrollment#scenarios.create
+  createEnrollment(input: {
+    agentId: string;
+    agentName: string;
+    ttlMs?: number;
+    now?: string;
+  }): EnrollmentGrant {
+    const agentId = AgentIdSchema.parse(input.agentId);
+    const agentName = AgentNameSchema.parse(input.agentName);
+    const ttlMs = input.ttlMs ?? 10 * 60 * 1_000;
+    if (!Number.isSafeInteger(ttlMs) || ttlMs < 1_000 || ttlMs > 24 * 60 * 60 * 1_000) {
+      throw new Error("Enrollment TTL must be between 1 second and 24 hours");
+    }
+    const createdAt = input.now ?? new Date().toISOString();
+    const expiresAt = new Date(Date.parse(createdAt) + ttlMs).toISOString();
+    const enrollmentId = randomUUID();
+    const code = `aop_enroll_${randomBytes(24).toString("base64url")}`;
+    const codeHash = this.credentialDigest("enrollment-code", code);
+
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const activeDevice = this.db
+        .prepare(
+          `SELECT 1 FROM device_credentials
+           WHERE agent_id = ? AND revoked_at IS NULL LIMIT 1`,
+        )
+        .get(agentId);
+      const reservedCode = this.db
+        .prepare(
+          `SELECT 1 FROM enrollment_codes
+           WHERE agent_id = ? AND consumed_at IS NULL AND revoked_at IS NULL
+             AND expires_at > ? LIMIT 1`,
+        )
+        .get(agentId, createdAt);
+      if (activeDevice || reservedCode) {
+        throw new EnrollmentConflictError(`Agent ID is active or reserved: ${agentId}`);
+      }
+      this.db
+        .prepare(
+          `INSERT INTO enrollment_codes (
+             id, code_hash, agent_id, agent_name, expires_at, consumed_at,
+             revoked_at, created_at
+           ) VALUES (?, ?, ?, ?, ?, NULL, NULL, ?)`,
+        )
+        .run(
+          enrollmentId,
+          codeHash,
+          agentId,
+          agentName,
+          expiresAt,
+          createdAt,
+        );
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+    return { enrollmentId, agentId, agentName, code, expiresAt, createdAt };
+  }
+
+  // @spec spec://modules/coordinator/FEAT-007-device-enrollment#contracts.enroll
+  consumeEnrollment(input: {
+    code: string;
+    platform: DeviceCredentialRow["platform"];
+    workerVersion: string;
+    now?: string;
+  }): DeviceCredentialGrant {
+    const now = input.now ?? new Date().toISOString();
+    const codeHash = this.credentialDigest("enrollment-code", input.code);
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const enrollment = this.db
+        .prepare("SELECT * FROM enrollment_codes WHERE code_hash = ?")
+        .get(codeHash) as EnrollmentCodeRow | undefined;
+      if (
+        !enrollment ||
+        enrollment.consumed_at !== null ||
+        enrollment.revoked_at !== null ||
+        enrollment.expires_at <= now
+      ) {
+        throw new EnrollmentDeniedError();
+      }
+      const activeDevice = this.db
+        .prepare(
+          `SELECT 1 FROM device_credentials
+           WHERE agent_id = ? AND revoked_at IS NULL LIMIT 1`,
+        )
+        .get(enrollment.agent_id);
+      if (activeDevice) throw new EnrollmentDeniedError();
+
+      const deviceToken = `aop_device_${randomBytes(32).toString("base64url")}`;
+      const tokenHash = this.credentialDigest("device-token", deviceToken);
+      const tokenHint = deviceToken.slice(-8);
+      const credentialId = randomUUID();
+      this.db
+        .prepare(
+          `INSERT INTO device_credentials (
+             id, enrollment_id, agent_id, agent_name, token_hash, token_hint,
+             platform, enrolled_worker_version, created_at, last_used_at,
+             revoked_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)`,
+        )
+        .run(
+          credentialId,
+          enrollment.id,
+          enrollment.agent_id,
+          enrollment.agent_name,
+          tokenHash,
+          tokenHint,
+          input.platform,
+          input.workerVersion,
+          now,
+        );
+      const consumed = this.db
+        .prepare(
+          `UPDATE enrollment_codes SET consumed_at = ?
+           WHERE id = ? AND consumed_at IS NULL AND revoked_at IS NULL
+             AND expires_at > ?`,
+        )
+        .run(now, enrollment.id, now);
+      if (consumed.changes !== 1) throw new EnrollmentDeniedError();
+      this.db.exec("COMMIT");
+      return {
+        agentId: enrollment.agent_id,
+        agentName: enrollment.agent_name,
+        deviceToken,
+        tokenHint,
+        createdAt: now,
+      };
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      if (error instanceof EnrollmentDeniedError) throw error;
+      throw error;
+    }
+  }
+
+  // @spec spec://modules/coordinator/FEAT-007-device-enrollment#scenarios.list
+  listDevices(): DeviceRecord[] {
+    const rows = this.db
+      .prepare(
+        `SELECT credentials.*, agents.worker_version, agents.last_seen_at
+         FROM device_credentials AS credentials
+         LEFT JOIN agents ON agents.id = credentials.agent_id
+         ORDER BY credentials.agent_name, credentials.created_at`,
+      )
+      .all() as Array<DeviceCredentialRow & {
+        worker_version: string | null;
+        last_seen_at: string | null;
+      }>;
+    return rows.map((row) => ({
+      agentId: row.agent_id,
+      agentName: row.agent_name,
+      source: "enrolled",
+      status: row.revoked_at === null ? "active" : "revoked",
+      tokenHint: row.token_hint,
+      platform: row.platform,
+      workerVersion: row.worker_version ?? row.enrolled_worker_version,
+      lastSeenAt: row.last_seen_at,
+      lastUsedAt: row.last_used_at,
+      enrolledAt: row.created_at,
+      revokedAt: row.revoked_at,
+    }));
+  }
+
+  // @spec spec://modules/coordinator/FEAT-007-device-enrollment#scenarios.revoke
+  revokeDevice(agentId: string, now = new Date().toISOString()): number {
+    const normalized = AgentIdSchema.parse(agentId);
+    const result = this.db
+      .prepare(
+        `UPDATE device_credentials SET revoked_at = ?
+         WHERE agent_id = ? AND revoked_at IS NULL`,
+      )
+      .run(now, normalized);
+    return Number(result.changes);
+  }
+
+  revokeEnrollment(enrollmentId: string, now = new Date().toISOString()): boolean {
+    const result = this.db
+      .prepare(
+        `UPDATE enrollment_codes SET revoked_at = ?
+         WHERE id = ? AND consumed_at IS NULL AND revoked_at IS NULL`,
+      )
+      .run(now, enrollmentId);
+    return result.changes === 1;
+  }
+
+  // @spec spec://modules/coordinator/FEAT-007-device-enrollment#states.device
+  authenticateDevice(token: string, now = new Date().toISOString()): DeviceAuthentication {
+    const tokenHash = this.credentialDigest("device-token", token);
+    const credential = this.db
+      .prepare("SELECT * FROM device_credentials WHERE token_hash = ?")
+      .get(tokenHash) as DeviceCredentialRow | undefined;
+    if (!credential) return { status: "not_found" };
+    if (credential.revoked_at !== null) return { status: "revoked" };
+    this.db
+      .prepare("UPDATE device_credentials SET last_used_at = ? WHERE id = ?")
+      .run(now, credential.id);
+    return { status: "active", agentId: credential.agent_id };
+  }
+
+  private credentialDigest(domain: "enrollment-code" | "device-token", value: string): string {
+    return createHmac("sha256", this.credentialKey)
+      .update(`agent-operator:${domain}:v1\0`, "utf8")
+      .update(value, "utf8")
+      .digest("hex");
+  }
+
   heartbeat(agentId: string, input: Heartbeat): void {
     const now = new Date().toISOString();
     this.db.exec("BEGIN IMMEDIATE");
@@ -328,6 +641,27 @@ export class CoordinatorStore {
 
   getAgent(agentId: string): AgentDescriptor | null {
     return this.listAgents().find((agent) => agent.id === agentId) ?? null;
+  }
+
+  getAgentRuntime(agentId: string): {
+    name: string;
+    platform: AgentDescriptor["platform"];
+    workerVersion: string;
+    lastSeenAt: string;
+  } | null {
+    const row = this.db
+      .prepare(
+        "SELECT name, platform, worker_version, last_seen_at FROM agents WHERE id = ?",
+      )
+      .get(agentId) as AgentRow | undefined;
+    return row
+      ? {
+          name: row.name,
+          platform: row.platform,
+          workerVersion: row.worker_version,
+          lastSeenAt: row.last_seen_at,
+        }
+      : null;
   }
 
   listProjects(agentId: string): ProjectDescriptor[] {

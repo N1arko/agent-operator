@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 import { access, readFile } from "node:fs/promises";
 import { requiredEnv } from "../shared/env.js";
 import { WorkerConfigFileSchema } from "../shared/protocol.js";
+import { APP_VERSION } from "../shared/version.js";
 import * as z from "zod/v4";
 import { CodexAppServer } from "./app-server.js";
 import { CoordinatorClient } from "./client.js";
@@ -65,7 +66,7 @@ if (process.argv[2] === "diagnose") {
       currentProjectId: null,
       currentActivity: null,
       projects,
-      workerVersion: "0.1.23",
+      workerVersion: APP_VERSION,
     });
     authenticated = true;
   }

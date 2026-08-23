@@ -1,11 +1,21 @@
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
-import { unlinkSync } from "node:fs";
+import { randomBytes, randomUUID } from "node:crypto";
+import {
+  copyFileSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  unlinkSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, it } from "node:test";
-import { CoordinatorStore } from "../src/coordinator/store.js";
+import {
+  CoordinatorStore,
+  EnrollmentConflictError,
+  EnrollmentDeniedError,
+} from "../src/coordinator/store.js";
 
 const stores: CoordinatorStore[] = [];
 const createStore = (): CoordinatorStore => {
@@ -19,6 +29,171 @@ afterEach(() => {
 });
 
 describe("CoordinatorStore", () => {
+  // @spec spec://modules/coordinator/FEAT-007-device-enrollment#states.enrollment
+  it("atomically consumes an enrollment once and revokes its device credential", () => {
+    const store = createStore();
+    const grant = store.createEnrollment({
+      agentId: "studio-mac",
+      agentName: "Studio Mac",
+      now: "2026-08-23T12:00:00.000Z",
+    });
+    const first = store.consumeEnrollment({
+      code: grant.code,
+      platform: "macos",
+      workerVersion: "0.1.23",
+      now: "2026-08-23T12:00:01.000Z",
+    });
+
+    assert.throws(
+      () =>
+        store.consumeEnrollment({
+          code: grant.code,
+          platform: "macos",
+          workerVersion: "0.1.23",
+          now: "2026-08-23T12:00:02.000Z",
+        }),
+      EnrollmentDeniedError,
+    );
+    assert.deepEqual(store.authenticateDevice(first.deviceToken), {
+      status: "active",
+      agentId: "studio-mac",
+    });
+    assert.equal(store.listDevices()[0]?.tokenHint, first.tokenHint);
+    assert.equal(store.revokeDevice("studio-mac"), 1);
+    assert.deepEqual(store.authenticateDevice(first.deviceToken), {
+      status: "revoked",
+    });
+    const replacement = store.createEnrollment({
+      agentId: "studio-mac",
+      agentName: "Studio Mac replacement",
+    });
+    assert.equal(replacement.agentId, "studio-mac");
+
+    const persistentRows = JSON.stringify({
+      enrollments: store.db.prepare("SELECT * FROM enrollment_codes").all(),
+      credentials: store.db.prepare("SELECT * FROM device_credentials").all(),
+    });
+    assert.equal(persistentRows.includes(grant.code), false);
+    assert.equal(persistentRows.includes(first.deviceToken), false);
+  });
+
+  it("rejects active identity conflicts and gives invalid codes one denial type", () => {
+    const store = createStore();
+    const active = store.createEnrollment({
+      agentId: "windows-laptop",
+      agentName: "Windows Laptop",
+      now: "2026-08-23T12:00:00.000Z",
+    });
+    assert.throws(
+      () =>
+        store.createEnrollment({
+          agentId: "windows-laptop",
+          agentName: "Another name",
+          now: "2026-08-23T12:00:01.000Z",
+        }),
+      EnrollmentConflictError,
+    );
+    assert.throws(
+      () =>
+        store.consumeEnrollment({
+          code: active.code,
+          platform: "windows",
+          workerVersion: "0.1.23",
+          now: "2026-08-23T12:11:00.000Z",
+        }),
+      EnrollmentDeniedError,
+    );
+    assert.throws(
+      () =>
+        store.consumeEnrollment({
+          code: "aop_enroll_unknown-code-value",
+          platform: "windows",
+          workerVersion: "0.1.23",
+        }),
+      EnrollmentDeniedError,
+    );
+    assert.equal(store.revokeEnrollment(active.enrollmentId), true);
+    assert.equal(store.revokeEnrollment(active.enrollmentId), false);
+  });
+
+  it("rolls back credential creation when enrollment consumption cannot commit", () => {
+    const store = createStore();
+    const enrollment = store.createEnrollment({
+      agentId: "transaction-mac",
+      agentName: "Transaction Mac",
+    });
+    store.db.exec(`
+      CREATE TRIGGER fail_enrollment_consumption
+      BEFORE UPDATE OF consumed_at ON enrollment_codes
+      WHEN NEW.consumed_at IS NOT NULL
+      BEGIN
+        SELECT RAISE(ABORT, 'forced storage failure');
+      END;
+    `);
+
+    assert.throws(
+      () =>
+        store.consumeEnrollment({
+          code: enrollment.code,
+          platform: "macos",
+          workerVersion: "0.1.23",
+        }),
+      /forced storage failure/,
+    );
+    assert.equal(
+      (store.db.prepare("SELECT COUNT(*) AS count FROM device_credentials").get() as {
+        count: number;
+      }).count,
+      0,
+    );
+    assert.equal(
+      (
+        store.db
+          .prepare("SELECT consumed_at FROM enrollment_codes WHERE id = ?")
+          .get(enrollment.enrollmentId) as { consumed_at: string | null }
+      ).consumed_at,
+      null,
+    );
+    store.db.exec("DROP TRIGGER fail_enrollment_consumption");
+    assert.equal(
+      store.consumeEnrollment({
+        code: enrollment.code,
+        platform: "macos",
+        workerVersion: "0.1.23",
+      }).agentId,
+      "transaction-mac",
+    );
+  });
+
+  it("restores credential authentication from a database and matching key", () => {
+    const directory = mkdtempSync(join(tmpdir(), "aop-enrollment-"));
+    const databasePath = join(directory, "coordinator.sqlite");
+    const backupPath = join(directory, "restored.sqlite");
+    const key = randomBytes(32);
+    const original = new CoordinatorStore(databasePath, undefined, key);
+    const enrollment = original.createEnrollment({
+      agentId: "backup-mac",
+      agentName: "Backup Mac",
+    });
+    const credential = original.consumeEnrollment({
+      code: enrollment.code,
+      platform: "macos",
+      workerVersion: "0.1.23",
+    });
+    original.db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+    original.close();
+    copyFileSync(databasePath, backupPath);
+
+    const restored = new CoordinatorStore(backupPath, undefined, key);
+    assert.deepEqual(restored.authenticateDevice(credential.deviceToken), {
+      status: "active",
+      agentId: "backup-mac",
+    });
+    restored.close();
+    assert.equal(readFileSync(backupPath).includes(credential.deviceToken), false);
+    rmSync(directory, { recursive: true });
+  });
+
   it("publishes agent presence and path-free projects", () => {
     const store = createStore();
     store.heartbeat("mac", {
@@ -320,7 +495,7 @@ describe("CoordinatorStore", () => {
     `);
     legacy.close();
 
-    const store = new CoordinatorStore(databasePath);
+    const store = new CoordinatorStore(databasePath, undefined, randomBytes(32));
     const columns = store.db
       .prepare("PRAGMA table_info(messages)")
       .all() as Array<{ name: string }>;

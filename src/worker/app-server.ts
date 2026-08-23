@@ -7,6 +7,7 @@ import {
   type ProgressPlanStep,
   type ReasoningEffort,
 } from "../shared/protocol.js";
+import { APP_VERSION } from "../shared/version.js";
 
 type JsonObject = Record<string, unknown>;
 type Pending = {
@@ -721,7 +722,7 @@ export class CodexAppServer {
       clientInfo: {
         name: "agent-operator-worker",
         title: "Agent Operator worker",
-        version: "0.1.23",
+        version: APP_VERSION,
       },
       capabilities: {
         experimentalApi: true,

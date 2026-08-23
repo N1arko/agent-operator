@@ -26,6 +26,201 @@ afterEach(async () => {
 });
 
 describe("Coordinator HTTP", () => {
+  // @spec spec://modules/coordinator/FEAT-007-device-enrollment#contracts.enroll
+  it("gives one credential to concurrent enrollment consumers and enforces revoke", async () => {
+    const store = new CoordinatorStore(":memory:");
+    stores.push(store);
+    const enrollment = store.createEnrollment({
+      agentId: "studio-mac",
+      agentName: "Studio Mac",
+    });
+    const app = createCoordinatorApp(store, {
+      host: "127.0.0.1",
+      maxWaitMs: 10,
+    });
+    const server = app.listen(0, "127.0.0.1");
+    servers.push(server);
+    await new Promise<void>((resolve) => server.once("listening", resolve));
+    const address = server.address();
+    assert.ok(address && typeof address !== "string");
+    const base = `http://127.0.0.1:${address.port}`;
+    const consume = () =>
+      fetch(`${base}/v1/enrollment/consume`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          code: enrollment.code,
+          platform: "macos",
+          workerVersion: "0.1.23",
+        }),
+      });
+
+    const responses = await Promise.all([consume(), consume()]);
+    assert.deepEqual(
+      responses.map((response) => response.status).sort(),
+      [201, 403],
+    );
+    const successful = responses.find((response) => response.status === 201);
+    assert.ok(successful);
+    const credential = (await successful.json()) as {
+      agentId: string;
+      deviceToken: string;
+    };
+    assert.equal(credential.agentId, "studio-mac");
+
+    const heartbeat = () =>
+      fetch(`${base}/v1/worker/heartbeat`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${credential.deviceToken}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          name: "Studio Mac",
+          platform: "macos",
+          state: "idle",
+          currentProjectId: null,
+          currentActivity: null,
+          projects: [],
+          workerVersion: "0.1.23",
+        }),
+      });
+    assert.equal((await heartbeat()).status, 200);
+    assert.equal(store.getAgent("studio-mac")?.name, "Studio Mac");
+    const mcpInitialize = () =>
+      fetch(`${base}/mcp`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${credential.deviceToken}`,
+          "content-type": "application/json",
+          accept: "application/json, text/event-stream",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: {
+            protocolVersion: "2025-06-18",
+            capabilities: {},
+            clientInfo: { name: "enrollment-test", version: "1.0.0" },
+          },
+        }),
+      });
+    assert.equal((await mcpInitialize()).status, 200);
+    assert.equal(store.revokeDevice("studio-mac"), 1);
+    const revoked = await heartbeat();
+    assert.equal(revoked.status, 401);
+    assert.deepEqual(await revoked.json(), { error: "device_revoked" });
+    const revokedMcp = await mcpInitialize();
+    assert.equal(revokedMcp.status, 401);
+    assert.deepEqual(await revokedMcp.json(), { error: "device_revoked" });
+  });
+
+  it("keeps invalid enrollment responses generic and rate-limited", async () => {
+    const store = new CoordinatorStore(":memory:");
+    stores.push(store);
+    const enrollment = store.createEnrollment({
+      agentId: "windows-laptop",
+      agentName: "Windows Laptop",
+    });
+    const app = createCoordinatorApp(store, {
+      host: "127.0.0.1",
+      enrollmentRateLimit: {
+        windowMs: 60_000,
+        perIpFailures: 2,
+        globalFailures: 10,
+      },
+    });
+    const server = app.listen(0, "127.0.0.1");
+    servers.push(server);
+    await new Promise<void>((resolve) => server.once("listening", resolve));
+    const address = server.address();
+    assert.ok(address && typeof address !== "string");
+    const base = `http://127.0.0.1:${address.port}`;
+    const consume = (code: string, workerVersion = "0.1.23") =>
+      fetch(`${base}/v1/enrollment/consume`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ code, platform: "windows", workerVersion }),
+      });
+
+    const unknown = await consume("aop_enroll_unknown-code-value");
+    assert.equal(unknown.status, 403);
+    assert.deepEqual(await unknown.json(), { error: "enrollment_denied" });
+    const incompatible = await consume(enrollment.code, "0.0.1");
+    assert.equal(incompatible.status, 409);
+    assert.equal((await consume(enrollment.code)).status, 429);
+    assert.equal(store.listDevices().length, 0);
+  });
+
+  it("does not reveal unknown, expired or consumed enrollment state", async () => {
+    const store = new CoordinatorStore(":memory:");
+    stores.push(store);
+    const expired = store.createEnrollment({
+      agentId: "expired-mac",
+      agentName: "Expired Mac",
+      now: "2000-01-01T00:00:00.000Z",
+    });
+    const current = store.createEnrollment({
+      agentId: "current-mac",
+      agentName: "Current Mac",
+    });
+    const app = createCoordinatorApp(store, { host: "127.0.0.1" });
+    const server = app.listen(0, "127.0.0.1");
+    servers.push(server);
+    await new Promise<void>((resolve) => server.once("listening", resolve));
+    const address = server.address();
+    assert.ok(address && typeof address !== "string");
+    const base = `http://127.0.0.1:${address.port}`;
+    const consume = (code: string, workerVersion = "0.1.23") =>
+      fetch(`${base}/v1/enrollment/consume`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ code, platform: "macos", workerVersion }),
+      });
+
+    assert.equal((await consume(current.code, "0.0.1")).status, 409);
+    assert.equal((await consume(current.code)).status, 201);
+    const denied = await Promise.all([
+      consume("aop_enroll_unknown-code-value"),
+      consume(expired.code),
+      consume(current.code),
+    ]);
+    assert.deepEqual(
+      denied.map((response) => response.status),
+      [403, 403, 403],
+    );
+    assert.deepEqual(
+      await Promise.all(denied.map((response) => response.json())),
+      [
+        { error: "enrollment_denied" },
+        { error: "enrollment_denied" },
+        { error: "enrollment_denied" },
+      ],
+    );
+  });
+
+  it("enforces the enrollment body limit before code validation", async () => {
+    const store = new CoordinatorStore(":memory:");
+    stores.push(store);
+    const app = createCoordinatorApp(store, { host: "127.0.0.1" });
+    const server = app.listen(0, "127.0.0.1");
+    servers.push(server);
+    await new Promise<void>((resolve) => server.once("listening", resolve));
+    const address = server.address();
+    assert.ok(address && typeof address !== "string");
+    const response = await fetch(
+      `http://127.0.0.1:${address.port}/v1/enrollment/consume`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ code: "x".repeat(5_000) }),
+      },
+    );
+    assert.equal(response.status, 413);
+    assert.deepEqual(await response.json(), { error: "enrollment_denied" });
+  });
+
   it("authenticates a worker heartbeat and exposes health", async () => {
     const store = new CoordinatorStore(":memory:");
     stores.push(store);

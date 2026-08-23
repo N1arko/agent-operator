@@ -8,6 +8,7 @@ import {
   type Message,
   type TemporaryFileAttachment,
 } from "../shared/protocol.js";
+import { APP_VERSION } from "../shared/version.js";
 import type { CoordinatorStore } from "./store.js";
 
 const MAX_OUTSTANDING_REQUESTS = 3;
@@ -97,7 +98,7 @@ export const createMcpServer = (
 ): McpServer => {
   const server = new McpServer({
     name: "agent-operator",
-    version: "0.1.23",
+    version: APP_VERSION,
   });
 
   server.registerTool(
