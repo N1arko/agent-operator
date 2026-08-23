@@ -15,6 +15,7 @@
 | [PROP-004](common/PROP-004-PRODUCT.md) | Роли и продуктовые сценарии | active |
 | [PROP-005](common/PROP-005-RUNTIME.md) | Runtime, очередь и восстановление | active |
 | [PROP-006](common/PROP-006-API.md) | API-контракты, доступ и ошибки | active |
+| [PROP-007](common/PROP-007-OPEN-SOURCE.md) | Self-hosted open-source продукт и trust domain | active |
 
 ### Coordinator
 
@@ -25,6 +26,7 @@
 | [FEAT-002](modules/coordinator/FEAT-002-task-coordination.md) | Запуск, продолжение, очередь и отмена задач | active |
 | [FEAT-004](modules/coordinator/FEAT-004-artifact-transfer.md) | Git-файлы и временные вложения | active |
 | [FEAT-006](modules/coordinator/FEAT-006-progress-updates.md) | Промежуточные обновления удалённой задачи | active |
+| [FEAT-007](modules/coordinator/FEAT-007-device-enrollment.md) | Enrollment, credentials и revoke устройств | active |
 | [INFRA-001](modules/coordinator/INFRA-001-coordinator-runtime.md) | Production runtime coordinator | active |
 
 ### Worker
@@ -36,6 +38,13 @@
 | [FEAT-005](modules/worker/FEAT-005-desktop-visible-delivery.md) | Видимое выполнение в Codex Desktop | active |
 | [INFRA-002](modules/worker/INFRA-002-worker-runtime.md) | Локальный runtime macOS и Windows | active |
 | [INFRA-003](modules/worker/INFRA-003-release-and-recovery.md) | Доставка, обновление и восстановление worker | active |
+
+### Distribution
+
+| Spec | Ответственность | Lifecycle |
+|---|---|---|
+| [PROP-102](modules/distribution/PROP-102-distribution.md) | Ownership публичной дистрибуции | active |
+| [INFRA-004](modules/distribution/INFRA-004-open-source-release.md) | CI, artifacts, supply chain и clean-room release | active |
 
 ## Draft
 

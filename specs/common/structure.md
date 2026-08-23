@@ -12,6 +12,7 @@
 | --- | --- | --- |
 | `coordinator` | `spec://modules/coordinator/PROP-100-coordinator#root` | presence, mailbox, MCP/HTTP, очередь и временные файлы |
 | `worker` | `spec://modules/worker/PROP-101-worker#root` | локальные проекты и задачи, Codex runtime, Desktop delivery и восстановление |
+| `distribution` | `spec://modules/distribution/PROP-102-distribution#root` | публичные artifacts, CI, installer lifecycle и release evidence |
 
 ## Карта кода {#code-map}
 
@@ -24,6 +25,10 @@
 | `scripts/**` | worker | `spec://modules/worker/*` |
 | `integrations/**` | coordinator + worker | `spec://modules/coordinator/*` |
 | `test/**` | соответствующая реализация | управляющая FEAT/INFRA |
+| `.github/workflows/**` | distribution | `spec://modules/distribution/*` |
+| `deploy/self-hosted/**` | distribution | `spec://modules/distribution/*` |
+| `scripts/release/**`, `scripts/install/**` | distribution | `spec://modules/distribution/*` |
+| `docs/getting-started/**`, `docs/security/**` | distribution | `spec://modules/distribution/*` |
 
 ## Поддерживающие документы {#supporting-docs}
 
@@ -35,4 +40,5 @@
 
 ## История изменений {#changelog}
 
+- [2026-08-23] Добавлен модуль distribution для open-source `v0.2.0-alpha`.
 - [2026-07-28] Зарегистрированы модули coordinator и worker.
