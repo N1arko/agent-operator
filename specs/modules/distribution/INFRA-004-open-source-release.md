@@ -232,5 +232,8 @@ read-only inventory и явного подтверждения точных targ
 
 ## 16. История изменений {#changelog}
 
+- [2026-08-23] Зафиксирована двухступенчатая provenance policy для GitHub Free:
+  private candidate хранит provisional statements, финальный public tag требует
+  GitHub-signed attestations.
 - [2026-08-23] Принят supply-chain и clean-room release contract для
   `v0.2.0-alpha`.

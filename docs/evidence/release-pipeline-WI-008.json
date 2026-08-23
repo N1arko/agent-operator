@@ -1,0 +1,117 @@
+{
+  "schemaVersion": 1,
+  "verifiedAt": "2026-08-23T20:45:53Z",
+  "sourceRevision": "64fc42fdf0ebb26254d775a467c1754ca7fd4eee",
+  "version": "0.2.0-alpha.0",
+  "tag": {
+    "name": "v0.2.0-alpha.0",
+    "object": "288e7d00d2ab107b3b71439bcf3de5f3269367df",
+    "type": "tag",
+    "targetType": "commit",
+    "target": "64fc42fdf0ebb26254d775a467c1754ca7fd4eee",
+    "annotated": true
+  },
+  "main": {
+    "ci": {
+      "runId": 32664862964,
+      "url": "https://github.com/N1arko/agent-operator/actions/runs/32664862964",
+      "conclusion": "success",
+      "revision": "64fc42fdf0ebb26254d775a467c1754ca7fd4eee"
+    },
+    "security": {
+      "runId": 32664862712,
+      "url": "https://github.com/N1arko/agent-operator/actions/runs/32664862712",
+      "conclusion": "success",
+      "productionDependencyAudit": "passed",
+      "fullHistorySecretScan": "passed"
+    }
+  },
+  "releaseRun": {
+    "runId": 32664982727,
+    "url": "https://github.com/N1arko/agent-operator/actions/runs/32664982727",
+    "event": "push",
+    "revision": "64fc42fdf0ebb26254d775a467c1754ca7fd4eee",
+    "conclusion": "success",
+    "jobs": {
+      "verify": { "id": 97256878266, "conclusion": "success" },
+      "releaseFiles": { "id": 97257031669, "conclusion": "success" },
+      "coordinatorImage": { "id": 97257031713, "conclusion": "success" },
+      "macosSmoke": { "id": 97257087689, "conclusion": "success" },
+      "windowsSmoke": { "id": 97257087663, "conclusion": "success" },
+      "draftRelease": { "id": 97257552129, "conclusion": "success" }
+    },
+    "runners": {
+      "linux": { "image": "ubuntu-24.04", "imageVersion": "20260816.277.1" },
+      "macos": { "image": "macos-26-arm64", "imageVersion": "20260728.0273.1" },
+      "windows": { "image": "windows-2025-vs2026", "imageVersion": "20260818.207.1" }
+    }
+  },
+  "draftRelease": {
+    "id": 375321006,
+    "draft": true,
+    "prerelease": true,
+    "assetCount": 15,
+    "checksumsVerified": 14,
+    "receiptCommit": "64fc42fdf0ebb26254d775a467c1754ca7fd4eee",
+    "cleanRoomStatus": "pending"
+  },
+  "artifacts": {
+    "releaseFiles": {
+      "githubArtifactId": 9499776177,
+      "digest": "sha256:62287151576908dc6965ba2fb3cd1466861e96fd726ef274d296874cd11059a3"
+    },
+    "coordinatorEvidence": {
+      "githubArtifactId": 9499826824,
+      "digest": "sha256:a88146511a92704c7e610317515dbcd451c9e68902e2f1da4c52a8e8086aa4c7"
+    },
+    "selfHosted": {
+      "name": "agent-operator-self-hosted-0.2.0-alpha.0.tar.gz",
+      "sha256": "75b66cdb2d4e253f036100fc4c1e68959ce93333ea9621f4e1ce8ed49754b445"
+    },
+    "macos": {
+      "name": "agent-operator-worker-macos-0.2.0-alpha.0.tar.gz",
+      "sha256": "d57b77391c5a9633244ae05a8501e0d5d364404bde585df825e4ebb998d73a16"
+    },
+    "windows": {
+      "name": "agent-operator-worker-windows-0.2.0-alpha.0.zip",
+      "sha256": "7dfc33c7029d8f9fc0ec5bafb3a5afa2203a93e5f8094be7e53d4412b709489e"
+    },
+    "manifests": {
+      "version": "0.2.0-alpha.0",
+      "revision": "64fc42fdf0ebb26254d775a467c1754ca7fd4eee",
+      "selfHostedFiles": 11,
+      "macosFiles": 705,
+      "windowsFiles": 707
+    }
+  },
+  "image": {
+    "name": "ghcr.io/n1arko/agent-operator",
+    "digest": "sha256:4fecd9afd393f4bb9a8d60ad17c61a1da91e8e4d2fb3769d2b84e70dd0b58bb5",
+    "platforms": ["linux/amd64", "linux/arm64"],
+    "trivyHighCritical": 0,
+    "sbom": "SPDX-2.3",
+    "buildkitProvenance": true
+  },
+  "provenance": {
+    "mode": "workflow-statement",
+    "signed": false,
+    "reason": "GitHub Free signed artifact attestations require a public repository",
+    "finalGate": "WI-010 requires GitHub-signed attestations after repository publication",
+    "documentation": "https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/use-artifact-attestations"
+  },
+  "pullRequestBoundary": {
+    "permissions": { "contents": "read" },
+    "releaseSecretReferences": 0,
+    "regressionTest": "test/release.test.ts",
+    "liveExternalFork": "deferred to WI-010 public acceptance"
+  },
+  "verification": {
+    "localTests": { "passed": 64, "failed": 0 },
+    "versionMismatch": "rejected",
+    "actionlint": "passed",
+    "workerArchiveReproducibility": "passed",
+    "selfHostedArchiveReproducibility": "passed",
+    "downloadedChecksums": "passed",
+    "artifactSensitiveRuntimeFiles": "none"
+  }
+}
