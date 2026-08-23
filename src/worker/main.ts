@@ -35,6 +35,15 @@ const codexArgs = z
 
 if (process.argv[2] === "diagnose") {
   const health = await client.health();
+  const healthBody = health.ok
+    ? ((await health.clone().json().catch(() => null)) as {
+        version?: unknown;
+        revision?: unknown;
+      } | null)
+    : null;
+  const coordinatorVersion =
+    typeof healthBody?.version === "string" ? healthBody.version : null;
+  const versionsCompatible = coordinatorVersion === APP_VERSION;
   const codex = spawnSync(codexBin, [...codexArgs, "--version"], {
     encoding: "utf8",
   });
@@ -76,7 +85,12 @@ if (process.argv[2] === "diagnose") {
       reachable: health.ok,
       status: health.status,
       authenticated,
+      version: coordinatorVersion,
+      revision:
+        typeof healthBody?.revision === "string" ? healthBody.revision : null,
+      compatible: versionsCompatible,
     },
+    workerVersion: APP_VERSION,
     codex: {
       command: codexBin,
       available: codex.status === 0,
@@ -95,6 +109,7 @@ if (process.argv[2] === "diagnose") {
   process.exitCode =
     health.ok &&
     authenticated &&
+    versionsCompatible &&
     codex.status === 0 &&
     projects.every((project) => project.available)
       ? 0

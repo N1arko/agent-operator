@@ -9,7 +9,6 @@ dependencies:
       value: "agent-operator"
       description: "Agent Operator coordinator"
       transport: "streamable_http"
-      url: "https://agent-operator.188-241-197-83.sslip.io/mcp"
 
 policy:
   allow_implicit_invocation: true

@@ -11,6 +11,8 @@ data/
 *.log
 specs/.me
 release/*.zip
+release/*.tar
+release/*.tar.gz
 projects.mac.json
 .env
 .env.*
