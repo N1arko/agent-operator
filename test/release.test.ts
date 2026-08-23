@@ -60,6 +60,9 @@ describe("open-source release pipeline", () => {
   // @spec spec://modules/distribution/INFRA-004-open-source-release#environments.clean-room
   it("keeps the Windows clean-room host runner syntactically valid", async () => {
     const script = resolve("scripts/release/windows-cleanroom-worker.ps1");
+    const source = await readFile(script, "utf8");
+    assert.doesNotMatch(source, /-Encoding utf8NoBOM/);
+    assert.match(source, /System\.Text\.UTF8Encoding\(\$false\)/);
     const command = `$errors = $null; [System.Management.Automation.Language.Parser]::ParseFile('${script.replaceAll("'", "''")}', [ref]$null, [ref]$errors) | Out-Null; if ($errors.Count) { $errors | ForEach-Object { Write-Error $_ }; exit 1 }`;
     await execFile("pwsh", ["-NoLogo", "-NoProfile", "-Command", command]);
   });

@@ -77,6 +77,15 @@
       "isolatedCoordinatorHealth": "passed",
       "manualLauncherPrepared": true
     },
+    "runnerCompatibility": {
+      "firstScheduledLaunch": "failed before install and receipt",
+      "windowsPowerShell": "5.1.26100.9168",
+      "windowsPowerShellUtf8NoBom": "ParameterBindingException",
+      "powerShell": "7.6.3",
+      "powerShellUtf8NoBom": "passed",
+      "correction": "runner now writes UTF-8 without BOM through System.Text.UTF8Encoding(false)",
+      "regressionTests": "68 passed, 0 failed"
+    },
     "liveView": {
       "status": "pending",
       "reason": "one manual PowerShell launch is required outside the remote Codex network sandbox"

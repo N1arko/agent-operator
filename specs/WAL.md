@@ -33,6 +33,12 @@
 - Политика sandbox удалённой Codex-сессии запрещает outbound worker connection,
   а Computer Use запрещает автоматизировать terminal UI. Нужен один ручной
   PowerShell запуск подготовленного launcher, затем Windows live-view turn.
+- Первый автономный one-shot запуск через Windows Task Scheduler дошёл до
+  clean-room runner и завершился до install/receipt. Минимальный probe
+  подтвердил: Windows PowerShell `5.1.26100.9168` отклоняет
+  `-Encoding utf8NoBOM` с `ParameterBindingException`, PowerShell `7.6.3`
+  принимает его. Portable .NET UTF-8 writer устраняет зависимость runner от
+  PowerShell 7; полный regression прогон остаётся 68/68.
 - Далее: Windows manual live-view gate → evidence merge → public visibility →
   annotated final tag → signed draft → full exact clean-room → evidence →
   publish workflow → anonymous clone/pull/download.
