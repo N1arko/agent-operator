@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "verifiedAt": "2026-08-23T19:27:22Z",
+  "sourceRevision": "de0d856b5ebb2a5ea7c3188aafdcbd986089df4c",
+  "checks": {
+    "typecheck": "passed",
+    "lintAndSpecLint": "passed",
+    "fullTests": { "passed": 55, "failed": 0 },
+    "focusedEnrollmentCases": {
+      "casesPerRun": 26,
+      "runs": 3,
+      "passedExecutions": 78,
+      "failedExecutions": 0
+    },
+    "productionDependencyAudit": "no known vulnerabilities"
+  },
+  "contractsObserved": {
+    "concurrentConsume": "one 201 credential response and one generic 403 denial",
+    "persistentHttpAuth": "heartbeat accepted",
+    "persistentMcpAuth": "initialize accepted",
+    "revokeBoundary": "next heartbeat and MCP initialize returned 401 device_revoked",
+    "legacyCompatibility": "AOP_DEVICE_TOKENS authentication and inventory retained",
+    "invalidStateDisclosure": "unknown, expired and consumed codes returned the same denial",
+    "rateLimitAndBodyLimit": "covered",
+    "storageRollback": "credential insert rolled back when consume update failed",
+    "restartAndRestore": "database plus matching credential key restored authentication",
+    "plaintextPersistence": "raw enrollment code and device token absent from SQLite records and restored database"
+  },
+  "secretScan": {
+    "tool": "gitleaks 8.30.1",
+    "containerDigest": "sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f",
+    "history": { "commitsScanned": 40, "bytesScanned": 1578282, "findings": 0 },
+    "trackedTree": { "filesScanned": 178, "bytesScanned": 818552, "findings": 0 }
+  }
+}

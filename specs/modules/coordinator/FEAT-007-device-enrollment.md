@@ -214,5 +214,7 @@ boundary. Public remote admin API в alpha отсутствует.
 
 ## 13. История изменений {#changelog}
 
+- [2026-08-23] Реализован и принят `WI-005`: HMAC storage, atomic consume,
+  `aopctl`, persistent/legacy auth, revoke и contract/security tests.
 - [2026-08-23] Принят enrollment/revoke contract для self-hosted
   `v0.2.0-alpha` с migration path legacy token map.
