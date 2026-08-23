@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "verifiedAt": "2026-08-23T19:06:00Z",
+  "sourceRevision": "working tree based on 6283d81",
+  "dependencyAudit": {
+    "command": "pnpm audit --prod",
+    "result": "no known vulnerabilities",
+    "mcpSdk": "1.30.0",
+    "hono": "4.13.3",
+    "fastUri": "3.1.5",
+    "honoNodeServer": "2.1.1"
+  },
+  "secretScan": {
+    "tool": "gitleaks 8.30.1",
+    "containerDigest": "sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f",
+    "history": {
+      "commitsScanned": 37,
+      "bytesScanned": 1506601,
+      "findings": 0
+    },
+    "trackedWorkingTree": {
+      "filesScanned": 163,
+      "bytesScanned": 755697,
+      "findings": 0
+    }
+  },
+  "productionLicenseInventory": [
+    { "license": "MIT", "uniquePackages": 83 },
+    { "license": "BSD-3-Clause", "uniquePackages": 2 },
+    { "license": "ISC", "uniquePackages": 7 },
+    { "license": "BSD-2-Clause", "uniquePackages": 1 }
+  ],
+  "personalReferenceInventory": {
+    "classification": "No secrets found. These references identify the private historical deployment and must leave the current public product surface before publication.",
+    "deploymentAliasFiles": 10,
+    "currentEndpointFiles": 22,
+    "macAbsoluteUserPathFiles": 0,
+    "windowsAbsoluteUserPathFiles": 20,
+    "migrationOwners": ["WI-006", "WI-007", "WI-009"]
+  },
+  "historyRewriteRequired": false
+}
