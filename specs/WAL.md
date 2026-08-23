@@ -1,10 +1,10 @@
 # WAL
 
-## Active Sessions
+## Active Checkpoints
 
-Активных сессий нет.
+Активных checkpoints нет.
 
-## Cross-module
+## Cross-work
 
 Нет.
 

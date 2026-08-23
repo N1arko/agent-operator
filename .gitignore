@@ -6,7 +6,7 @@ coverage/
 .env.*
 !.env.example
 data/
-work/
+/work/
 *.log
 specs/.me
 release/*.zip

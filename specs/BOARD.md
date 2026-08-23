@@ -5,23 +5,25 @@
 
 ## Backlog
 
-| ID | Spec | Title | Module | Owner | Priority | Scope | Plain words |
-|----|------|-------|--------|-------|----------|-------|-------------|
+| Work | Title | Specs | Owner | Priority |
+|---|---|---|---|---|
 
 ## In Progress
 
-| ID | Spec | Title | Module | Owner | Started | Blockers | Scope | Plain words |
-|----|------|-------|--------|-------|---------|----------|-------|-------------|
+| Work | Title | Specs | Owner | Started | Blocker |
+|---|---|---|---|---|---|
 
 ## Blocked
 
-| ID | Spec | Reason | Waiting for | Scope | Plain words |
-|----|------|--------|-------------|-------|-------------|
+| Work | Title | Owner | Reason | Waiting for |
+|---|---|---|---|---|
 
 ## Done
 
-| ID | Spec | Title | Owner | Date |
-|----|------|-------|-------|------|
+| Work | Specs | Title | Owner | Date |
+|---|---|---|---|---|
+| [WI-001](work/archive/2026/WI-001-spec-workflow-adoption.md) | PROP-000 | Обновить spec-driven workflow | @codex-mac | 2026-08-23 |
+| FIX-003 | `spec://modules/coordinator/FEAT-002-task-coordination#scenarios.cancel` | Безопасная граница после отмены Desktop-turn | @codex-mac | 2026-07-31 |
 | FIX-001 | `spec://modules/coordinator/FEAT-002-task-coordination#followup-serialization` | Последовательная доставка follow-up | @codex-mac | 2026-07-28 |
 | FEAT-006 | `spec://modules/coordinator/FEAT-006-progress-updates#root` | Промежуточные обновления удалённой задачи | @codex-mac | 2026-07-28 |
 | FIX-002 | `spec://modules/coordinator/FEAT-002-task-coordination#execution-profile-selection` | Настроить выбор модели и reasoning | @codex-mac | 2026-07-28 |
