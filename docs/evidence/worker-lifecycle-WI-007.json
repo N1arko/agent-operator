@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 1,
+  "verifiedAt": "2026-08-23T20:17:45Z",
+  "sourceRevision": "8e4aa2c0d058f94f4cd9384322ac34b85aba4114",
+  "version": "0.1.23",
+  "ci": {
+    "runId": 32663873192,
+    "url": "https://github.com/N1arko/agent-operator/actions/runs/32663873192",
+    "conclusion": "success",
+    "qualityJob": { "id": 97254120930, "conclusion": "success", "testsPassed": 61, "testsFailed": 0 },
+    "artifactJob": { "id": 97254120771, "conclusion": "success" },
+    "macosJob": { "id": 97254182047, "conclusion": "success" },
+    "windowsJob": { "id": 97254182049, "conclusion": "success" }
+  },
+  "artifacts": {
+    "githubArtifact": {
+      "id": 9499461102,
+      "name": "worker-packages",
+      "sizeBytes": 1719053,
+      "digest": "sha256:66f2de439928fbc6f68f572d0b080b52cc10bbeadbd40f554a4bff27176c2373"
+    },
+    "macos": {
+      "name": "agent-operator-worker-macos-0.1.23.tar.gz",
+      "sha256": "ed26c412182f15d762c99ff97378e1863d5327f82d26e0648fa6b01578a451cb"
+    },
+    "windows": {
+      "name": "agent-operator-worker-windows-0.1.23.zip",
+      "sha256": "1f5082828be10793638deb5ed97ee9151f0ecfb647115df395c7f4e1127a1c95"
+    },
+    "reproducibility": "two consecutive builds per package test produced identical archives",
+    "contents": "compiled worker, frozen zod runtime, lifecycle scripts, coordinate-agents skill, manifest, public instructions and Apache-2.0 license",
+    "excluded": ["coordinator source", "tests", "personal config", "state", "tokens", "private hostnames"]
+  },
+  "profiles": {
+    "macos": {
+      "os": "macOS 26",
+      "image": "macos-26-arm64",
+      "imageVersion": "20260728.0273.1",
+      "service": "LaunchAgent",
+      "receipt": {
+        "install": "passed",
+        "firstHeartbeat": "passed",
+        "controlTask": "passed",
+        "integration": "passed",
+        "update": "passed",
+        "rollback": "passed",
+        "uninstall": "passed",
+        "userProjectPreserved": true
+      }
+    },
+    "windows": {
+      "os": "Microsoft Windows Server 2025",
+      "image": "windows-2025-vs2026",
+      "imageVersion": "20260818.207.1",
+      "service": "Scheduled Task",
+      "receipt": {
+        "install": "passed",
+        "firstHeartbeat": "passed",
+        "controlTask": "passed",
+        "integration": "passed",
+        "update": "passed",
+        "rollback": "passed",
+        "uninstall": "passed",
+        "userProjectPreserved": true
+      }
+    }
+  },
+  "boundaries": {
+    "controlTask": "deterministic fake Codex app-server exercised the installed worker protocol and terminal result path without a paid model call",
+    "durableState": "preserved across rollback and update",
+    "credentialStorage": "owner-only macOS modes and current-user-only Windows ACL are installer gates",
+    "integration": "MCP endpoint and coordinate-agents skill installed from the user-supplied coordinator URL, then removed by scoped uninstall",
+    "cleanup": "platform service, integration, runtime, config and state removed; user project retained"
+  },
+  "security": {
+    "runId": 32663873261,
+    "url": "https://github.com/N1arko/agent-operator/actions/runs/32663873261",
+    "conclusion": "success",
+    "productionDependencyAudit": "passed",
+    "fullHistorySecretScan": "passed"
+  }
+}
