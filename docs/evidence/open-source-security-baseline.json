@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "verifiedAt": "2026-08-23T19:06:00Z",
-  "sourceRevision": "working tree based on 6283d81",
+  "verifiedAt": "2026-08-23T19:11:55Z",
+  "sourceRevision": "b3da50e818d89167187e5f09d6edd18665b59a8f",
   "dependencyAudit": {
     "command": "pnpm audit --prod",
     "result": "no known vulnerabilities",
@@ -14,15 +14,20 @@
     "tool": "gitleaks 8.30.1",
     "containerDigest": "sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f",
     "history": {
-      "commitsScanned": 37,
-      "bytesScanned": 1506601,
+      "commitsScanned": 38,
+      "bytesScanned": 1533631,
       "findings": 0
     },
     "trackedWorkingTree": {
-      "filesScanned": 163,
-      "bytesScanned": 755697,
+      "filesScanned": 173,
+      "bytesScanned": 776881,
       "findings": 0
     }
+  },
+  "repositoryLicense": {
+    "spdx": "Apache-2.0",
+    "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "officialSourceMatch": true
   },
   "productionLicenseInventory": [
     { "license": "MIT", "uniquePackages": 83 },
@@ -36,7 +41,8 @@
     "currentEndpointFiles": 22,
     "macAbsoluteUserPathFiles": 0,
     "windowsAbsoluteUserPathFiles": 20,
-    "migrationOwners": ["WI-006", "WI-007", "WI-009"]
+    "migrationOwners": ["WI-006", "WI-007", "WI-009"],
+    "finalRescanOwner": "WI-010"
   },
   "historyRewriteRequired": false
 }
