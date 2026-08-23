@@ -10,7 +10,7 @@ Heartbeat, публикация проектов и получение сооб�
 удалённый `agent_start` завершился до создания thread:
 
 ```text
-error deriving config: C:\Users\nikit\.codex\config.toml:
+error deriving config: C:\Users\example-user\.codex\config.toml:
 unknown variant `default`, expected `fast` or `flex`
 ```
 

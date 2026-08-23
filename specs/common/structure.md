@@ -34,8 +34,8 @@
 
 - `docs/adr/` объясняет выбор решений.
 - `docs/OPERATIONS.md` задаёт операторские процедуры.
-- `docs/E2E_*.md` фиксирует живые проверки релизов.
-- `docs/UPDATE_WINDOWS_*.md` хранит историю доставок Windows worker.
+- `docs/evidence/*.json` фиксирует машиночитаемые проверки work item и релизов.
+- `docs/RELEASE_NOTES*.md` и GitHub Releases описывают публичные поставки.
 - `KANBAN.md` хранит историю карточек AOP до перехода на текущую доску.
 
 ## История изменений {#changelog}

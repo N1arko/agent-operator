@@ -1,139 +1,186 @@
-# Эксплуатация Agent Operator
+# Operations and recovery
 
-## Компоненты
+[Русская версия](OPERATIONS.ru.md)
 
-- coordinator и Caddy: SSH-host `clawvpn`, каталог
-  `/opt/agent-operator/deploy`;
-- Mac-worker: LaunchAgent `ru.agent-operator.worker`;
-- Windows-worker: Scheduled Task `Agent Operator Worker`;
-- production endpoint:
-  `https://agent-operator.188-241-197-83.sslip.io`.
+Run coordinator commands from the extracted `self-hosted` directory. Run
+worker commands from the extracted package or the installed `workerctl.mjs`.
 
-## Быстрая проверка
-
-Coordinator:
+## Routine checks
 
 ```sh
-curl -fsS https://agent-operator.188-241-197-83.sslip.io/health
-ssh clawvpn 'cd /opt/agent-operator/deploy && docker compose ps'
-ssh clawvpn 'cd /opt/agent-operator/deploy && docker compose logs --tail=100 coordinator'
+./compose.sh ps
+./compose.sh logs --tail=100 coordinator
+./aopctl.sh doctor --json
+./aopctl.sh device list
+curl -fsS https://operator.example.com/health
 ```
 
-Mac-worker:
+A healthy worker updates heartbeat about every 10 seconds. Coordinator marks a
+heartbeat older than 45 seconds offline. Use the local worker doctor after a
+Codex, network, project, or integration change.
+
+macOS:
 
 ```sh
-launchctl print "gui/$(id -u)/ru.agent-operator.worker"
-tail -n 100 data/mac-worker.error.log
+./bin/macos/doctor.sh
+launchctl print "gui/$(id -u)/org.agent-operator.worker"
 ```
 
-Windows-worker:
+Windows:
 
 ```powershell
+.\bin\windows\diagnose.ps1
 Get-ScheduledTask -TaskName "Agent Operator Worker"
 Get-ScheduledTaskInfo -TaskName "Agent Operator Worker"
-& "$env:LOCALAPPDATA\AgentOperator\0.1.23\diagnose.ps1"
 ```
 
-Через MCP проверить `agents_list`, затем `agent_status` для `mac` и `windows`.
-Heartbeat старше 45 секунд переводит worker в `offline`.
-
-## Перезапуск
+## Restart
 
 Coordinator:
 
 ```sh
-ssh clawvpn 'cd /opt/agent-operator/deploy && docker compose restart coordinator'
+./compose.sh restart coordinator
+./aopctl.sh doctor --json
 ```
 
-Mac-worker:
+macOS worker:
 
 ```sh
-launchctl kickstart -k "gui/$(id -u)/ru.agent-operator.worker"
+launchctl kickstart -k "gui/$(id -u)/org.agent-operator.worker"
 ```
 
-Windows-worker:
+Windows worker:
 
 ```powershell
 Stop-ScheduledTask -TaskName "Agent Operator Worker"
 Start-ScheduledTask -TaskName "Agent Operator Worker"
 ```
 
-После перезапуска проверить два последовательных heartbeat и состояние
-локальной очереди. Durable state worker расположен вне каталога версии.
+After restart, confirm two heartbeats and one read-only agent status request.
+Durable pending messages and worker state live outside the versioned runtime.
 
-## Очередь, lease и отмена
+## Queue, lease, and cancellation
 
-Coordinator допускает три незавершённых исполняемых запроса на worker.
-Стандартный lease — два часа. Значение задаётся переменной
-`AOP_REQUEST_LEASE_MS`, минимальное значение — 60 секунд.
+One worker executes one active turn and accepts up to three outstanding
+executable requests. The default request lease is two hours and can be changed
+with `AOP_REQUEST_LEASE_MS`; the minimum is 60 seconds.
 
-`agent_cancel(messageId)` отменяет запрос отправителя. Активный Desktop-turn
-получает локальную команду остановки. Результаты имеют отдельные статусы:
-`completed`, `failed`, `cancelled`.
+Use the exact request message ID with `agent_cancel`. Treat `completed`,
+`failed`, and `cancelled` as separate terminal outcomes. If the queue is full,
+inspect agent status, wait for the current request, or cancel an obsolete exact
+request.
 
-При заполненном backlog:
+## Backup and restore
 
-1. получить `agent_status`;
-2. дождаться текущего результата через `agent_wait`;
-3. отменить ненужный запрос по точному ID;
-4. проверить автоматическое истечение исторических записей.
-
-## Модели
-
-`agent_models(agentId)` ставит локальный запрос `model/list`. Результат содержит
-доступные модели, модель по умолчанию и поддерживаемые reasoning efforts.
-Выбранные `model` и `reasoningEffort` передаются в `agent_start`,
-`agent_send` или `agent_thread_send`.
-
-## Резервное копирование
-
-Systemd timer `agent-operator-backup.timer` ежедневно запускает согласованный
-SQLite backup. Копии хранятся семь дней:
-
-```text
-/opt/agent-operator/deploy/backups/coordinator-YYYYMMDDTHHMMSSZ.sqlite
-```
-
-Проверка:
+Create a consistent backup:
 
 ```sh
-ssh clawvpn 'systemctl status agent-operator-backup.timer --no-pager'
-ssh clawvpn 'systemctl list-timers agent-operator-backup.timer --no-pager'
-ssh clawvpn 'ls -lh /opt/agent-operator/deploy/backups'
+./backup.sh
 ```
 
-Ручной snapshot:
+The command writes a manifest, SQLite snapshot, and credential key copy under
+`data/backups/`. Copy the complete set to storage protected at the same level as
+the coordinator database. Schedule `backup.sh` with the host scheduler and set
+your own retention policy.
+
+Restore during an operator-controlled maintenance window:
 
 ```sh
-ssh clawvpn 'sudo systemctl start agent-operator-backup.service'
+./restore.sh BACKUP_MANIFEST.json --confirm
 ```
 
-Восстановление выполняется в окно остановки coordinator:
+The script stops coordinator, verifies manifest checksums and SQLite integrity,
+creates a pre-restore backup, restores the set, starts coordinator, and runs
+offline doctor. Then verify public health, device list, fresh heartbeat, and a
+control task.
+
+The database and `credential.key` belong to one backup set. Keep them together.
+
+## Coordinator update
+
+1. Read release notes and compatibility changes.
+2. Download and verify the new self-hosted bundle and `SHA256SUMS`.
+3. Run `./backup.sh` in the current deployment.
+4. Copy the new Compose/operator files into a staging directory and preserve
+   the current `.env` and `data/` paths.
+5. Set `AOP_IMAGE` to the new exact tag or digest.
+6. Validate and start:
 
 ```sh
-cd /opt/agent-operator/deploy
-docker compose stop coordinator
-cp data/db/coordinator.sqlite "backups/pre-restore-$(date -u +%Y%m%dT%H%M%SZ).sqlite"
-cp backups/coordinator-YYYYMMDDTHHMMSSZ.sqlite data/db/coordinator.sqlite
-sqlite3 data/db/coordinator.sqlite 'PRAGMA integrity_check;'
-docker compose start coordinator
+./compose.sh config --quiet
+./compose.sh pull coordinator
+./compose.sh up -d coordinator
+./aopctl.sh doctor --json
 ```
 
-После восстановления проверить `/health`, список агентов и новый heartbeat.
+7. Verify health, both workers, and a control task before removing staging or
+   prior bundle files.
 
-## Обновление
+## Coordinator rollback
 
-1. Запустить полный локальный набор typecheck, lint и tests.
-2. Собрать Windows package и проверить SHA-256.
-3. Создать SQLite snapshot.
-4. Обновить файлы в `/opt/agent-operator`, пересобрать coordinator и проверить
-   `/health`.
-5. Перезапустить Mac-worker и дождаться heartbeat новой версии.
-6. Обновить action Windows Scheduled Task на новый каталог версии.
-7. После добавления или изменения MCP полностью завершить ChatGPT/Codex
-   Desktop и открыть приложение снова. Установщик сохраняет переменные MCP в
-   `~/.codex/.env`, который Codex читает при старте app-server.
-8. Проверить MCP и skill в новом обычном чате Codex на обоих компьютерах.
-9. Выполнить двусторонний E2E и проверить пустой backlog.
+Set `AOP_IMAGE` to the previously recorded exact tag or digest and run:
 
-Предыдущий каталог Windows-worker сохраняется для отката.
+```sh
+./compose.sh pull coordinator
+./compose.sh up -d coordinator
+./aopctl.sh doctor --json
+```
+
+Use `restore.sh` with the pre-update backup when the release notes require a
+database rollback or integrity checks fail. Preserve the failed data directory
+for diagnosis.
+
+## Worker update and rollback
+
+Download and verify the new platform package. Run update from that package,
+then doctor and a control task.
+
+macOS:
+
+```sh
+./bin/macos/update.sh
+./bin/macos/doctor.sh
+./bin/macos/rollback.sh
+./bin/macos/doctor.sh
+```
+
+Windows:
+
+```powershell
+.\bin\windows\update-worker.ps1
+.\bin\windows\diagnose.ps1
+.\bin\windows\rollback-worker.ps1
+.\bin\windows\diagnose.ps1
+```
+
+Update preserves configuration and durable state. Rollback switches to the one
+retained previous runtime.
+
+## Revoke and remove
+
+Revoke a lost or retired device on the coordinator host:
+
+```sh
+./aopctl.sh device revoke AGENT_ID
+./aopctl.sh device list
+```
+
+Use the worker's scoped uninstall commands from the [worker guide](getting-started/WORKER.md).
+Stop a deployment while preserving its data:
+
+```sh
+./compose.sh down
+```
+
+Archive a verified backup before removing the `data/` directory or host.
+
+## Incident checklist
+
+1. Preserve exact version, image digest, package checksum, time, and affected
+   request IDs.
+2. Revoke a suspected device credential.
+3. Restrict network access when coordinator compromise is possible.
+4. Create a backup before repair when state remains trustworthy.
+5. Keep prompts, results, tokens, project paths, and file contents out of shared
+   issue logs.
+6. Use [private vulnerability reporting](../SECURITY.md) for security impact.

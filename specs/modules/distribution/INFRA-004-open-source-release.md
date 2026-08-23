@@ -142,7 +142,8 @@ Public compose bundle:
 - имеет healthcheck, resource defaults и restart policy;
 - поддерживает documented direct TLS и private-network variants;
 - включает `aopctl` для enrollment, diagnose, backup и restore;
-- не содержит `clawvpn`, sslip hostname, `mac/windows` identity и personal path.
+- не содержит personal infrastructure aliases, generated hostnames, device
+  identities и personal paths.
 
 ## 9. Worker package lifecycle {#worker-lifecycle}
 

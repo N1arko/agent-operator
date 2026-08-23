@@ -1,5 +1,7 @@
 # Security Policy
 
+[Русская версия](SECURITY.ru.md)
+
 ## Supported versions
 
 Security updates target the latest published Agent Operator release. The
@@ -32,6 +34,5 @@ temporary files. Operators are responsible for TLS, host access, backups,
 device enrollment and revocation. A shared hosted service for unrelated users
 is outside the supported alpha model.
 
-See `specs/common/PROP-007-OPEN-SOURCE.md` and
-`specs/modules/coordinator/FEAT-007-device-enrollment.md` for the canonical
-trust and credential boundaries.
+See the public [security and privacy model](docs/security/SECURITY-MODEL.md) for
+data locations, retention, network boundaries and known alpha risks.

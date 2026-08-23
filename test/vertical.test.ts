@@ -31,7 +31,7 @@ class FakeAppServer {
     threadId: "019f9ff2-42a3-7c43-92e9-ab1b9794e043",
     title: "Windows setup",
     preview: "Update the Windows worker",
-    cwd: "C:\\Users\\nikit\\Documents\\Codex\\projectless",
+    cwd: "C:\\Users\\example-user\\Documents\\Codex\\projectless",
     updatedAt: 1_753_488_000,
     status: "notLoaded",
     activeFlags: [],

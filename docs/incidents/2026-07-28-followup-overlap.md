@@ -79,5 +79,5 @@ created: 2026-07-28T19:52:48.779Z
 - живой E2E выполнил три request в одном thread с result cursors 453, 454 и
   455;
 - для каждого request сохранён один terminal result;
-- подробные доказательства:
-  [`../E2E_RELEASE_0.1.22.md`](../E2E_RELEASE_0.1.22.md).
+- подробные доказательства сохранены в Git tag `v0.1.22`; актуальные релизы
+  публикуют машиночитаемый receipt среди GitHub Release assets.

@@ -1,5 +1,7 @@
 # Contributing to Agent Operator
 
+[Русская версия](CONTRIBUTING.ru.md)
+
 Thank you for helping improve Agent Operator.
 
 ## Before starting
@@ -30,6 +32,7 @@ pnpm typecheck
 pnpm lint
 pnpm test
 pnpm audit --prod
+pnpm docs:check
 ```
 
 ## Pull requests

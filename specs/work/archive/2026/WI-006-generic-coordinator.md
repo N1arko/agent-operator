@@ -42,5 +42,5 @@ doctor подтверждает SQLite и owner-only credential key. Локал�
 High/Critical уязвимостей в runtime image, Gitleaks не обнаружил секретов в
 истории и tracked tree. Существующий private production не изменялся; staged
 migration и rollback через `v0.1.23` описаны в
-`docs/migrations/0.1.23-to-generic-coordinator.md`. Полная запись приёмки:
+`docs/getting-started/MIGRATION.ru.md`. Полная запись приёмки:
 `docs/evidence/generic-coordinator-WI-006.json`.

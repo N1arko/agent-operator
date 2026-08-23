@@ -16,6 +16,7 @@ const deploymentFiles = [
   "backup.sh",
   "restore.sh",
   "README.md",
+  "README.ru.md",
 ];
 
 const deploymentPath = (name: string): string =>
@@ -28,9 +29,9 @@ describe("self-hosted coordinator distribution", () => {
       .map((name) => readFileSync(deploymentPath(name), "utf8"))
       .join("\n");
     for (const forbidden of [
-      "clawvpn",
+      ["claw", "vpn"].join(""),
       "sslip.io",
-      "188-241-197-83",
+      ["188", "241", "197", "83"].join("-"),
       "C:\\Users\\",
       "/Users/",
       "AOP_DEVICE_TOKENS=mac:",

@@ -1,67 +1,70 @@
 # Self-hosted coordinator
 
-Этот каталог запускает coordinator на Linux host с Docker Compose. Конфигурация
-хранится в локальном `.env`, runtime state — в `data/`. Оба пути исключены из
-Git.
+[Русская версия](README.ru.md)
 
-## Первый запуск из release bundle
+This directory runs Agent Operator coordinator on a Linux Docker Compose host.
+Local configuration lives in `.env`; runtime state lives in `data/`. Both are
+excluded from Git.
 
-Распакуйте `agent-operator-self-hosted-VERSION.tar.gz`, перейдите в каталог
-`self-hosted` и выполните:
+## Release bundle
+
+Run `./bootstrap.sh` once. It creates `.env` with user-only permissions and
+exits. Set your own URL and host:
+
+```dotenv
+AOP_PUBLIC_URL=https://operator.example.com
+AOP_ALLOWED_HOSTS=operator.example.com
+AOP_TLS=true
+AOP_DOMAIN=operator.example.com
+```
+
+Point DNS to this host and allow inbound TCP 80/443, then run:
 
 ```sh
 ./bootstrap.sh
+./compose.sh ps
+./aopctl.sh doctor --json
 ```
 
-Первый вызов создаёт `.env` и останавливается. Release bundle уже содержит
-точную GHCR image reference. Укажите собственные `AOP_PUBLIC_URL` и
-`AOP_ALLOWED_HOSTS`; для HTTPS также задайте `AOP_TLS=true`, `AOP_DOMAIN` и
-направьте DNS на host. Повторный `./bootstrap.sh` запускает coordinator.
+The release bundle already contains the exact GHCR image tag. Keep it unchanged
+until an intentional, backed-up update.
 
-## Первый запуск из source checkout
+## Source checkout
+
+For local development:
 
 ```sh
 cd deploy/self-hosted
-./bootstrap.sh
-```
-
-Первый вызов создаёт `.env` и останавливается. Укажите собственные
-`AOP_PUBLIC_URL` и `AOP_ALLOWED_HOSTS`. Для HTTPS также установите
-`AOP_TLS=true`, `AOP_DOMAIN` и направьте DNS на host. Затем выполните:
-
-```sh
+./bootstrap.sh || test $? -eq 2
+# edit .env
 ./bootstrap.sh --build
-./aopctl.sh device create --id studio-mac --name "Studio Mac"
 ```
 
-Base profile публикует coordinator на
-`AOP_BIND_ADDRESS:AOP_HTTP_PORT` и подходит для loopback, VPN или внешнего
-reverse proxy. TLS profile запускает Caddy на 80/443 и автоматически получает
-сертификат для `AOP_DOMAIN`.
-
-## Операции
+## Operator commands
 
 ```sh
-./compose.sh ps
-./aopctl.sh doctor --json --offline
+./aopctl.sh device create --id dev-mac --name "Development Mac"
 ./aopctl.sh device list
+./aopctl.sh device revoke dev-mac
 ./backup.sh
-./restore.sh agent-operator-YYYYMMDDTHHMMSSS...json --confirm
+./restore.sh BACKUP_MANIFEST.json --confirm
 ./compose.sh restart coordinator
+./compose.sh logs --tail=100 coordinator
 ./compose.sh down
 ```
 
-Backup manifest, SQLite snapshot и credential key находятся в
-`data/backups/`. Restore требует остановки coordinator, проверяет checksums и
-SQLite integrity и сначала сохраняет pre-restore backup текущего состояния.
+Backup sets contain a manifest, SQLite snapshot, and credential key under
+`data/backups/`. Restore verifies checksums and SQLite integrity and creates a
+pre-restore backup before replacing state.
 
-Для регулярного backup запускайте `backup.sh` внешним scheduler host. Retention
-в alpha управляется владельцем deployment.
+## Security
 
-## Права и безопасность
+- `bootstrap.sh` sets container UID/GID to the current Linux user;
+- `data/`, backup files, `.env`, and the credential key receive owner-only
+  permissions;
+- the container drops capabilities, uses `no-new-privileges`, and has a
+  read-only root filesystem;
+- public routing requires TLS, an exact allowed host, and a firewall;
+- the base HTTP profile should bind to loopback or a private-network address.
 
-- `bootstrap.sh` задаёт container UID/GID равными текущему Linux user;
-- `data/`, backup files и credential key получают owner-only permissions;
-- container работает без root capabilities, с read-only root filesystem;
-- `.env`, `data/`, tokens и backup artifacts не добавляются в Git;
-- для internet profile обязательны TLS, exact allowed host и firewall.
+Full documentation: <https://github.com/N1arko/agent-operator/tree/main/docs>.

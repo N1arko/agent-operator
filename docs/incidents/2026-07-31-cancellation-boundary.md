@@ -45,4 +45,5 @@ stop. Потерянный app-server восстанавливается чте�
 и оба worker развёрнуты на новой версии. Windows post-cutover turn подтвердил
 одну пару процессов, два heartbeat, `idle`, diagnose exit 0 и пустые журналы.
 
-Живые доказательства: [`../E2E_RELEASE_0.1.23.md`](../E2E_RELEASE_0.1.23.md).
+Живые доказательства сохранены в Git tag `v0.1.23`; актуальные релизы публикуют
+машиночитаемый receipt среди GitHub Release assets.

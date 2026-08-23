@@ -69,8 +69,10 @@ describe("worker release packages", () => {
       assert.ok(relativeFiles.includes("integration/coordinate-agents/SKILL.md"));
       assert.equal(relativeFiles.some((path) => path.includes("coordinator") || path.includes("test/")), false);
       const searchable = await Promise.all((await filesUnder(packageRoot)).filter((path) => !path.includes("node_modules/zod/locales")).map((path) => readFile(path, "utf8").catch(() => "")));
-      assert.equal(searchable.join("\n").includes("agent-operator.188-241-197-83.sslip.io"), false);
-      assert.equal(searchable.join("\n").includes("clawvpn"), false);
+      const formerEndpoint = ["agent-operator", ["188", "241", "197", "83"].join("-"), "sslip", "io"].join(".");
+      const formerAlias = ["claw", "vpn"].join("");
+      assert.equal(searchable.join("\n").includes(formerEndpoint), false);
+      assert.equal(searchable.join("\n").includes(formerAlias), false);
     }
 
     const store = new CoordinatorStore(":memory:");

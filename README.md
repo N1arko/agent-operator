@@ -1,150 +1,85 @@
 # Agent Operator
 
-Agent Operator — канал связи между независимыми экземплярами Codex, включая
-экземпляры с разными аккаунтами и на разных компьютерах.
+[Русская версия](README.ru.md)
 
-Система позволяет одному Codex:
+Agent Operator is a free, self-hosted coordination channel for Codex agents on
+your own computers and accounts. One small coordinator carries presence,
+mailbox messages, task results, and temporary files. A local worker keeps each
+Codex session and source tree on its own machine.
 
-- увидеть доступных агентов и понять, чем они заняты;
-- посмотреть локальные проекты выбранного агента;
-- найти недавнюю локальную задачу по заголовку;
-- продолжить существующую задачу по её точному ID;
-- выполнить удалённый turn через локальный headless worker;
-- запустить свежую работу в конкретном проекте;
-- отправить сообщение активному агенту;
-- дождаться обновления;
-- автоматически получить итоговый ответ;
-- передать созданный файл через Git или временное вложение.
+> **Alpha:** the public line starts with `v0.2.0-alpha`. Read the
+> [compatibility matrix](docs/getting-started/COMPATIBILITY.md) and
+> [known limitations](docs/getting-started/COMPATIBILITY.md#known-limitations)
+> before installation.
 
-VPS выполняет роль mailbox и presence-сервиса: хранит агентов, их состояние и
-сообщения. Локальный worker управляет собственной Codex-сессией и автоматически
-возвращает результат автору запроса.
+## What it does
 
-## Состав системы
+- lists connected agents and path-free project descriptors;
+- starts a fresh Codex task in a selected remote project;
+- continues a known or recently discovered Codex task;
+- sends serialized follow-ups, progress, cancellation, and final results;
+- transfers committed Git files or bounded temporary attachments;
+- keeps one owner-controlled trust domain with per-device enrollment and
+  revocation;
+- installs, diagnoses, updates, rolls back, and removes workers on macOS and
+  Windows;
+- backs up and restores coordinator state.
 
-- **Coordinator** — MCP/API-сервис на VPS с SQLite и временной папкой файлов.
-- **Worker** — фоновый клиент на macOS или Windows, связанный с локальным Codex.
-- **Protocol** — компактные схемы агентов, сообщений и вложений.
+```text
+Codex + worker (macOS)  ──outbound HTTPS──┐
+                                          ├── self-hosted coordinator
+Codex + worker (Windows) ─outbound HTTPS──┘   SQLite + bounded file store
+```
 
-## Документы
+OpenAI credentials, source trees, absolute project paths, and complete local
+task lists remain on worker hosts. See the [security and privacy model](docs/security/SECURITY-MODEL.md).
 
-- [Навигация по спецификациям](specs/README.md)
-- [Каноническая доска работ](specs/BOARD.md)
-- [Карта развития](specs/ROADMAP.md)
-- [Концепция продукта](docs/PROJECT_BRIEF.md)
-- [Архитектурный черновик](docs/ARCHITECTURE.md)
-- [Профиль VPS clawvpn](docs/DEPLOYMENT_CLAWVPN.md)
-- [Checkpoint подключения Windows](docs/CHECKPOINT_WINDOWS.md)
-- [Обновление Windows-worker 0.1.14](docs/UPDATE_WINDOWS_0.1.14.md)
-- [Windows Desktop E2E 0.1.14](docs/E2E_WINDOWS_DESKTOP_0.1.14.md)
-- [Обновление Windows-worker 0.1.15](docs/UPDATE_WINDOWS_0.1.15.md)
-- [Обновление Windows-worker 0.1.16](docs/UPDATE_WINDOWS_0.1.16.md)
-- [Обновление Windows-worker 0.1.17](docs/UPDATE_WINDOWS_0.1.17.md)
-- [Обновление Windows-worker 0.1.18](docs/UPDATE_WINDOWS_0.1.18.md)
-- [Обновление Windows-worker 0.1.19](docs/UPDATE_WINDOWS_0.1.19.md)
-- [Обновление Windows-worker 0.1.20](docs/UPDATE_WINDOWS_0.1.20.md)
-- [Обновление Windows-worker 0.1.22](docs/UPDATE_WINDOWS_0.1.22.md)
-- [Обновление Windows-worker 0.1.23](docs/UPDATE_WINDOWS_0.1.23.md)
-- [Инструкция эксплуатации](docs/OPERATIONS.md)
-- [Mac Desktop E2E 0.1.15](docs/E2E_MAC_DESKTOP_0.1.15.md)
-- [Windows Desktop E2E 0.1.15](docs/E2E_WINDOWS_DESKTOP_0.1.15.md)
-- [Release E2E 0.1.16](docs/E2E_RELEASE_0.1.16.md)
-- [Release E2E 0.1.18](docs/E2E_RELEASE_0.1.18.md)
-- [Release E2E 0.1.22](docs/E2E_RELEASE_0.1.22.md)
-- [Release E2E 0.1.23](docs/E2E_RELEASE_0.1.23.md)
-- [Исторический канбан разработки](KANBAN.md)
+## Quick start
 
-## Статус
+You need:
 
-MVP прошёл `CP-WIN-01` на реальном Windows-worker:
+- a Linux `amd64` or `arm64` host with Docker Compose;
+- a domain with ports 80/443, or a private network between all hosts;
+- Node.js 24 and Codex on each macOS or Windows worker host;
+- two devices for the first end-to-end task.
 
-- coordinator работает на `clawvpn` по доверенному HTTPS;
-- Mac-worker установлен как LaunchAgent и виден как `idle`;
-- локальный вертикальный тест и реальный удалённый `agent_start → agent_wait`
-  проходят;
-- Windows-worker установлен, прошёл диагностику и публикует локальный
-  проект;
-- после отключения питания Windows-worker восстановил heartbeat и вернул
-  контрольный ответ `ready`;
-- проверяемые Git-вложения работают в обоих направлениях;
-- Windows-worker запускается и восстанавливается через Scheduled Task;
-- временный файл прошёл реальный E2E Mac → VPS → Windows с очисткой после
-  результата.
+Follow the [Quick Start](docs/getting-started/QUICKSTART.md). It covers:
 
-Публичный endpoint:
-`https://agent-operator.188-241-197-83.sslip.io`.
+1. downloading and verifying release artifacts;
+2. starting the coordinator with your own URL;
+3. creating one-time enrollment codes;
+4. installing macOS and Windows workers;
+5. sending the first task and receiving its result.
 
-Версия `0.1.4` добавляет `agent_threads` и `agent_thread_send`. Поиск читает
-локальный индекс Codex с лимитом до 20 результатов и не публикует абсолютные
-пути. Продолжение по `threadId` работает для задач вне project registry.
-Проверяемые Git-вложения прошли в направлениях Windows → Mac и Mac → Windows
-с сохранением ветки и working tree.
+## Documentation
 
-Версия `0.1.7` сохраняет durable очередь и ограничение backlog, запускает turn
-до открытия удалённой задачи в ChatGPT Desktop и возвращает `threadId` в
-result. Временные вложения получают отдельный upload/download-контракт, TTL,
-quota и проверку SHA-256.
+- [Documentation index](docs/README.md)
+- [Quick Start](docs/getting-started/QUICKSTART.md)
+- [Coordinator guide](docs/getting-started/COORDINATOR.md)
+- [Worker guide](docs/getting-started/WORKER.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Operations and recovery](docs/OPERATIONS.md)
+- [Troubleshooting](docs/operations/TROUBLESHOOTING.md)
+- [Security policy](SECURITY.md)
+- [Contributing](CONTRIBUTING.md)
 
-Версия `0.1.9` подключается к локальному Windows `codex-ipc` и после запуска и
-завершения внешнего turn инвалидирует кеш списка задач и конкретного thread.
-Живой E2E зафиксировал отсутствие перечитывания активной переписки по этим
-событиям.
+## Product boundary
 
-Версия `0.1.10` добавила запуск существующих Windows-задач через
-`thread-follower-start-turn`. Проверка установленного Desktop уточнила, что
-чтение состояния выполняется из внешнего IPC по broadcast
-`thread-stream-state-changed`.
+The alpha supports one trusted group of owner-controlled devices. Each worker
+runs one active Codex turn and has a bounded queue. Hosted multi-tenant use,
+fine-grained roles, a web admin panel, schedules, app stores, native package
+signing, and several simultaneous turns per worker are outside this release.
 
-Версия `0.1.11` использует этот поток для проверки доступности задачи,
-отслеживания прогресса и получения итогового ответа. Prompt и выполнение
-создаются локальным host приложения. Решение описано в ADR-0010.
+## Development
 
-Живой E2E уточнил, что Desktop не отправляет исходный snapshot уже открытой
-задачи сразу после подключения внешнего клиента. Версия `0.1.12` сразу
-отправляет `thread-follower-start-turn`, а затем собирает snapshot и patches
-запущенного хода.
+```sh
+corepack enable
+pnpm install --frozen-lockfile
+pnpm typecheck
+pnpm lint
+pnpm test
+pnpm audit --prod --audit-level high
+```
 
-Живой E2E `0.1.12` показал prompt, прогресс и финальный ответ в открытом
-Desktop. Версия `0.1.13` получает итог для coordinator отдельным read-only
-`thread/read` после принятия Desktop-команды, поэтому завершение не зависит от
-формы renderer patches.
-
-Диагностика `0.1.13` обнаружила переходный пустой `failed` в read-only
-app-server, пока Desktop продолжает тот же ход. Версия `0.1.14` продолжает
-опрос до сохранённого статуса `completed` и финального `agentMessage`.
-Windows E2E подтвердил короткий, 48-секундный и параллельный сценарии без
-дублей; Desktop показывал prompt, прогресс и итоговый ответ без перезапуска.
-
-Версия `0.1.15` создаёт пустую проектную задачу и передаёт её первый turn
-владельцу Codex Desktop. Mac E2E подтвердил появление исходного prompt и
-финального ответа в новой карточке без перезапуска приложения. Windows E2E
-создал одну новую задачу и получил точный completed-result через тот же путь.
-
-Версия `0.1.16` добавляет конечный lease, управляемую отмену Desktop-turn,
-локальное обнаружение моделей и reasoning efforts. Переносимый skill
-`coordinate-agents` направляет запросы обычного чата в Agent Operator.
-
-Версия `0.1.17` сохраняет Desktop follower подключённым до завершения
-удалённого turn. Живой E2E уточнил, что renderer также требует явной
-регистрации follower и загрузки полной истории.
-
-Версия `0.1.18` регистрирует worker как follower до открытия задачи, ждёт
-исходный snapshot и после завершения вызывает
-`thread-follower-load-complete-history`. Пустая карточка заполняется без
-перезапуска приложения.
-
-Версия `0.1.19` последовательно исполняет follow-up, дедуплицирует повтор
-одного intent, каскадно отменяет связанную очередь и передаёт commentary, plan
-и activity как промежуточные update. Профили `fast`, `balanced` и `deep`
-разрешаются через актуальный каталог recipient.
-
-Версия `0.1.20` дополняет Desktop progress резервным read-only наблюдением
-активного turn через app-server, сохраняя update перед terminal result.
-
-Версия `0.1.22` атомарно выдаёт inbox message одному worker и восстанавливает
-неподтверждённую доставку после короткого delivery lease. Cancellation во
-время принятия Desktop-turn прерывает локальный turn и освобождает очередь.
-
-Версия `0.1.23` удерживает очередь при timeout Desktop interrupt, прекращает
-публикацию progress отменённого request и защищает параллельные read-only
-observations от преждевременного idle stop app-server.
+The project uses executable specifications under [`specs/`](specs/README.md).
+Contributions are licensed under [Apache License 2.0](LICENSE).

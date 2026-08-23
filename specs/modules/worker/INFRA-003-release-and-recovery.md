@@ -61,7 +61,8 @@ queue, Desktop thread IDs, число user turn/final/result и пользова
 - `scripts/package-windows.sh`
 - `scripts/windows/install-worker.ps1`, `run-worker.ps1`, `diagnose.ps1`
 - `scripts/install-macos-launch-agent.mjs`
-- `docs/UPDATE_WINDOWS_*.md`, `docs/E2E_*.md`
+- `packaging/worker/README.md`, `packaging/worker/README.ru.md`
+- `docs/evidence/*.json`, release receipt и GitHub Actions release jobs
 
 ## 9. Критерии готовности {#acceptance}
 

@@ -93,7 +93,7 @@ idle timeout не действует при наличии активных obse
 - `src/worker/desktop.ts`, `src/worker/app-server.ts`, `src/worker/worker.ts`
 - `test/desktop-follower.test.ts`, `test/desktop-ipc.test.ts`
 - `docs/adr/0006-desktop-thread-visibility.md` – `0013`
-- `docs/E2E_RELEASE_0.1.18.md`
+- исторический live E2E для `v0.1.18` доступен в Git tag `v0.1.18`
 
 ## 10. Критерии готовности {#acceptance}
 
