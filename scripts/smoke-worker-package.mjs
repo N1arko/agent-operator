@@ -87,7 +87,9 @@ if (args[0] === "--version") {
   if (targetPlatform === "macos") {
     await run(join(packageRoot, "bin", "macos", "install.sh"), ["--install-root", installRoot, "--coordinator-url", coordinatorUrl, "--enrollment-code", enrollment.code, "--project", project, "--codex-bin", process.execPath, "--codex-arg", fakeCodex, "--codex-home", codexHome]);
   } else {
-    await run("pwsh", ["-NoLogo", "-NoProfile", "-File", join(packageRoot, "bin", "windows", "install-worker.ps1"), "-CoordinatorUrl", coordinatorUrl, "-EnrollmentCode", enrollment.code, "-Project", project, "-InstallRoot", installRoot, "-CodexBin", process.execPath, "-CodexArg", fakeCodex, "-CodexHome", codexHome]);
+    const fakeCodexCommand = join(temporary, "codex.cmd");
+    await writeFile(fakeCodexCommand, `@echo off\r\n"${process.execPath}" "${fakeCodex}" %*\r\n`, { mode: 0o600 });
+    await run("pwsh", ["-NoLogo", "-NoProfile", "-File", join(packageRoot, "bin", "windows", "install-worker.ps1"), "-CoordinatorUrl", coordinatorUrl, "-EnrollmentCode", enrollment.code, "-Project", project, "-InstallRoot", installRoot, "-CodexBin", fakeCodexCommand, "-CodexHome", codexHome]);
   }
   await serviceStatus();
   if (!store.getAgent(`os-smoke-${targetPlatform}`)) throw new Error("First authenticated heartbeat was not observed");
@@ -121,7 +123,7 @@ if (args[0] === "--version") {
   if (await readFile(join(installRoot, "data", "preserved.txt"), "utf8") !== "durable-state\n") throw new Error("Durable state changed during lifecycle");
   await run("node", [workerctl, "uninstall", "--install-root", installRoot, "--scope", "all", "--delete-config", "--delete-state"]);
   if (await readFile(join(project, "user-file.txt"), "utf8") !== "preserve\n") throw new Error("User project changed during uninstall");
-  console.log(JSON.stringify({ ok: true, platform: targetPlatform, version: manifest.version, revision: manifest.revision, install: "passed", firstHeartbeat: "passed", controlTask: "passed", service: "passed", integration: "passed", update: "passed", rollback: "passed", uninstall: "passed", userProjectPreserved: true }));
+  console.log(JSON.stringify({ ok: true, platform: targetPlatform, version: manifest.version, revision: manifest.revision, install: "passed", firstHeartbeat: "passed", controlTask: "passed", windowsCommandLauncher: targetPlatform === "windows" ? "passed" : "not-applicable", service: "passed", integration: "passed", update: "passed", rollback: "passed", uninstall: "passed", userProjectPreserved: true }));
 } finally {
   await stopResidualService();
   await new Promise((resolveClose) => server.close(() => resolveClose()));

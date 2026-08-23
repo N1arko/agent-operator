@@ -4,7 +4,7 @@ import { promisify } from "node:util";
 import { afterEach, describe, it } from "node:test";
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 const execFile = promisify(execFileCallback);
 const directories: string[] = [];
@@ -33,6 +33,8 @@ describe("open-source release pipeline", () => {
     assert.match(release, /actions\/attest@[a-f0-9]{40}/);
     assert.match(release, /visibility == 'public'/);
     assert.match(release, /create-provisional-provenance\.mjs/);
+    assert.match(ci, /verify-artifact-safety\.mjs/);
+    assert.match(release, /verify-artifact-safety\.mjs/);
     assert.match(release, /--draft --prerelease --verify-tag/);
     assert.match(release, /release-receipt\.json/);
     for (const workflow of [ci, release, await readFile(".github/workflows/security.yml", "utf8")]) {
@@ -53,6 +55,13 @@ describe("open-source release pipeline", () => {
     assert.match(workflow, /credential\.helper= clone/);
     assert.match(workflow, /docker buildx imagetools inspect/);
     assert.doesNotMatch(workflow, /pull_request:/);
+  });
+
+  // @spec spec://modules/distribution/INFRA-004-open-source-release#environments.clean-room
+  it("keeps the Windows clean-room host runner syntactically valid", async () => {
+    const script = resolve("scripts/release/windows-cleanroom-worker.ps1");
+    const command = `$errors = $null; [System.Management.Automation.Language.Parser]::ParseFile('${script.replaceAll("'", "''")}', [ref]$null, [ref]$errors) | Out-Null; if ($errors.Count) { $errors | ForEach-Object { Write-Error $_ }; exit 1 }`;
+    await execFile("pwsh", ["-NoLogo", "-NoProfile", "-Command", command]);
   });
 
   // @spec spec://modules/distribution/INFRA-004-open-source-release#artifacts.verification
