@@ -12,7 +12,6 @@
 
 | Work | Title | Specs | Owner | Started | Blocker |
 |---|---|---|---|---|---|
-| [WI-002](work/WI-002-release-0.1.23-baseline.md) | Зафиксировать baseline 0.1.23 | FEAT-002, FEAT-005, INFRA-002, INFRA-003 | @codex-mac | 2026-08-23 | — |
 
 ## Blocked
 
@@ -23,6 +22,7 @@
 
 | Work | Specs | Title | Owner | Date |
 |---|---|---|---|---|
+| [WI-002](work/archive/2026/WI-002-release-0.1.23-baseline.md) | FEAT-002, FEAT-005, INFRA-002, INFRA-003 | Зафиксировать baseline 0.1.23 | @codex-mac | 2026-08-23 |
 | [WI-001](work/archive/2026/WI-001-spec-workflow-adoption.md) | PROP-000 | Обновить spec-driven workflow | @codex-mac | 2026-08-23 |
 | FIX-003 | `spec://modules/coordinator/FEAT-002-task-coordination#scenarios.cancel` | Безопасная граница после отмены Desktop-turn | @codex-mac | 2026-07-31 |
 | FIX-001 | `spec://modules/coordinator/FEAT-002-task-coordination#followup-serialization` | Последовательная доставка follow-up | @codex-mac | 2026-07-28 |

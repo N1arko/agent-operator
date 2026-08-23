@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "verifiedAt": "2026-08-23T18:52:14Z",
+  "sourceCommit": "487ced89491763c034cb027057fcce3e0252250e",
+  "version": "0.1.23",
+  "productionHealth": {
+    "status": "ok",
+    "version": "0.1.23"
+  },
+  "publishedWorkerBundleSha256": "505a1623c69d5a9b3566cabb3279d1eecc2d5ceb9b3fa49fc2fd4f9dd9503c74",
+  "temporaryRebuildBundleSha256": "e3722d058fead7d9c8218eb8e30a07b4c453669a94daee0dcb0460458240ac16",
+  "bundleContentComparison": {
+    "filesTotal": 61,
+    "filesIdentical": 60,
+    "onlyDifferentFile": "UPDATE_WINDOWS_0.1.23.md",
+    "difference": "The published archive predates the post-publication section that records its own SHA-256; executable files and installer assets are identical."
+  },
+  "productionCompiledSha256": {
+    "dist/src/coordinator/mcp.js": "8365737d95df2107a6a1cf16e4b482b5c72c746ae84cf32607f982c5f3d34e13",
+    "dist/src/coordinator/server.js": "d372fcb3e3ebda293127826184312f920076d5af0adcf16cdab3e1255cfd1b06",
+    "dist/src/worker/app-server.js": "fc3f3f601681660fd73ed419cd53c815012835b977fbc44e5de5db2af0cdfa37",
+    "dist/src/worker/desktop-follower.js": "338739d44f97f8976f00601d160faf87c7e4389a5ae7ceca050eded9f2d380c7",
+    "dist/src/worker/main.js": "d39496c7460f5553a809db2210068d7d6d72d497e5d9168e9cf0b38635c4fd57",
+    "dist/src/worker/worker.js": "178681127bd21a242acbba4edcd6bd0708ab399d0816b9b9da79112072385518"
+  },
+  "checks": {
+    "typecheck": "passed",
+    "lint": "passed",
+    "specLint": "18 specs, 18 unique spec IDs, 2 unique WI IDs",
+    "tests": "45/45 passed",
+    "focusedRegression": "36/36 passed across three runs",
+    "diffCheck": "passed",
+    "productionAudit": "5 advisories: 1 high, 3 moderate, 1 low; tracked as TD-003 and blocks the open-source release"
+  }
+}
