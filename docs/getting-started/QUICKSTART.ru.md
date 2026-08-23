@@ -10,7 +10,8 @@ Windows worker. Замените `operator.example.com` и пути проект
 
 - Linux `amd64` или `arm64` host с Docker Engine и Docker Compose v2;
 - DNS-имя, направленное на host, и входящие TCP 80/443;
-- пользовательские сессии macOS и Windows с Node.js 24 и `codex` в `PATH`;
+- пользовательские сессии macOS и Windows с Node.js 24 и актуальным официальным
+  `codex` в `PATH` (clean-room acceptance baseline: CLI `0.149.0`);
 - shell-доступ ко всем трём host.
 
 Для частной сети используйте профиль из

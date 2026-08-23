@@ -28,18 +28,22 @@
   доставлен на реальный host; manifest подтверждает version
   `0.2.0-alpha`, platform `windows` и revision `b5c2298`. Изолированный
   coordinator после backup обновлён до той же revision и имеет healthy public
-  endpoint. Enrollment и one-command launcher подготовлены локально на
-  Windows.
-- Политика sandbox удалённой Codex-сессии запрещает outbound worker connection,
-  а Computer Use запрещает автоматизировать terminal UI. Нужен один ручной
-  PowerShell запуск подготовленного launcher, затем Windows live-view turn.
+  endpoint.
 - Первый автономный one-shot запуск через Windows Task Scheduler дошёл до
   clean-room runner и завершился до install/receipt. Минимальный probe
   подтвердил: Windows PowerShell `5.1.26100.9168` отклоняет
   `-Encoding utf8NoBOM` с `ParameterBindingException`, PowerShell `7.6.3`
   принимает его. Portable .NET UTF-8 writer устраняет зависимость runner от
   PowerShell 7; полный regression прогон остаётся 68/68.
-- Далее: Windows manual live-view gate → evidence merge → public visibility →
+- Exact Windows worker установлен через совместимый runner и официальный Codex
+  CLI `0.149.0`. Предустановленный внешний CLI `0.114.0` отклонял актуальный
+  `config.toml`; current CLI прошёл model discovery, heartbeat и live turns.
+- Windows observer открыл целевой Codex task во время выполнения и подтвердил
+  prompt, commentary `WINDOWS_APP_DISAMBIGUATION_RUNNING_OK`, active work и
+  отсутствие writer conflict. Initial turn и два follow-up завершились
+  ожидаемыми terminal markers; Desktop rejection, headless fallback, IPC error
+  и acceptance timeout в worker log отсутствуют.
+- Далее: evidence merge → exact final rebuild и короткий package retest → public visibility →
   annotated final tag → signed draft → full exact clean-room → evidence →
   publish workflow → anonymous clone/pull/download.
 

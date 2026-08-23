@@ -58,6 +58,14 @@ On macOS, inspect the LaunchAgent and local worker error log under the install
 root. On Windows, inspect Scheduled Task last result and the current-user
 install root. Avoid copying complete logs into a public issue.
 
+### `error deriving config` or `unknown variant` from Codex
+
+The worker service resolved an older external Codex CLI that cannot read the
+current Codex configuration. Run `codex --version` in the service user context,
+update the official Codex CLI, restart the worker service, and rerun doctor.
+Desktop and the external CLI can have different versions. The clean-room
+acceptance baseline for this release is Codex CLI `0.149.0`.
+
 ## Agent is offline
 
 An agent becomes offline after 45 seconds without heartbeat. Run local doctor,
