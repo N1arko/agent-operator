@@ -4,9 +4,9 @@
 
 ### WI-010 — clean-room acceptance и публикация
 
-- Final source version: `0.2.0-alpha`; текущая работа ведётся в
-  `codex/wi010-release-evidence` от merge revision
-  `b5c2298f3eeb65d07daca4974f9034317fe5c641`.
+- Final source version: `0.2.0-alpha`; PR `#7` с Windows runner и evidence
+  принят в `main`. Каждое дальнейшее pre-tag изменение требует нового exact CI
+  artifact set.
 - OpenAI Desktop `26.818.41509` / Codex `0.149.0-alpha.4.1` изменил follower
   start contract. Старый v1 request не находил обработчика, worker переходил в
   headless fallback, а карточка оставалась пустой до финала.
@@ -43,7 +43,18 @@
   отсутствие writer conflict. Initial turn и два follow-up завершились
   ожидаемыми terminal markers; Desktop rejection, headless fallback, IPC error
   и acceptance timeout в worker log отсутствуют.
-- Далее: evidence merge → exact final rebuild и короткий package retest → public visibility →
+- Merge revision `d4111ff47d3f0a7c51b3a83527cf1df492e6f7b2` прошла main CI
+  `32674355544` и Security `32674355545`. Exact Windows CI package SHA256
+  `5969170d1d77b9f339cb38df597f45f72b1982438b7deb81fd3e49281a1dec60`
+  установлен отдельным clean-room worker на Windows PowerShell 5.1 / Codex CLI
+  `0.149.0`; coordinator той же revision, heartbeat, prompt, running commentary,
+  active work, terminal result и отсутствие writer conflict подтверждены.
+- Финальный read-only audit подтвердил zero secret findings на полной истории и
+  отсутствие private deployment references в текущей публичной документации.
+  Исторические deployment references классифицированы WI-004;
+  `historyRewriteRequired=false`. Exact tag workflow повторит history scan.
+- Далее: final exact CI после WAL/audit update → удалить private rehearsal
+  draft/tag → public visibility →
   annotated final tag → signed draft → full exact clean-room → evidence →
   publish workflow → anonymous clone/pull/download.
 

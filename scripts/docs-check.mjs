@@ -101,8 +101,8 @@ for (const path of [
 const privatePatterns = [
   ["claw", "vpn"].join(""),
   ["188", "241", "197", "83"].join("-"),
-  "/Users/nikitaarhipov",
-  "C:\\Users\\nikit",
+  "/Users/",
+  "C:\\Users\\",
 ];
 for (const pattern of privatePatterns) {
   if (publicSurface.includes(pattern)) throw new Error(`Private deployment reference in public documentation: ${pattern}`);
