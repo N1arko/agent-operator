@@ -208,26 +208,47 @@ describe("Codex Desktop follower", () => {
     const followerRequest = received.find(
       (message) => message.method === "thread-follower-start-turn",
     );
+    const followerParams = (followerRequest?.params ?? {}) as Record<
+      string,
+      unknown
+    >;
+    const turnStart = (followerParams.turnStart ?? {}) as Record<
+      string,
+      unknown
+    >;
+    const turnRequest = (turnStart.request ?? {}) as Record<string, unknown>;
+    const clientUserMessageId = String(turnRequest.clientUserMessageId);
+    assert.match(clientUserMessageId, /^[0-9a-f-]{36}$/i);
     assert.deepEqual(
       {
         version: followerRequest?.version,
         params: followerRequest?.params,
       },
       {
-        version: 1,
+        version: 2,
         params: {
           conversationId: threadId,
-          turnStartParams: {
-            input: [
-              {
-                type: "text",
-                text: "Reply exactly OK",
-                text_elements: [],
-              },
-            ],
-            attachments: [],
-            model: "gpt-test",
-            effort: "high",
+          turnStart: {
+            request: {
+              threadId,
+              clientUserMessageId,
+              input: [
+                {
+                  type: "text",
+                  text: "Reply exactly OK",
+                  text_elements: [],
+                },
+              ],
+              model: "gpt-test",
+              effort: "high",
+            },
+            context: {
+              attachments: [],
+              commentAttachments: [],
+              inheritThreadSettings: true,
+              useAppServerPermissionDefault: true,
+              usePermissionSelection: false,
+            },
           },
         },
       },
@@ -254,6 +275,22 @@ describe("Codex Desktop follower", () => {
           params: message.params,
         })),
       [
+        {
+          version: 1,
+          params: {
+            conversationId: threadId,
+            hostId: "local",
+            following: true,
+          },
+        },
+        {
+          version: 1,
+          params: {
+            conversationId: threadId,
+            hostId: "local",
+            following: false,
+          },
+        },
         {
           version: 1,
           params: {

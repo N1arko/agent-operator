@@ -74,7 +74,8 @@ binding и pending request.
 - macOS IPC: локальный Unix socket Codex.
 - Windows IPC: `\\.\pipe\codex-ipc`.
 - `thread-stream-following-changed` v1.
-- `thread-follower-start-turn`.
+- `thread-follower-start-turn` v2 с `turnStart.request` и
+  `turnStart.context`.
 - `thread-follower-interrupt-turn`.
 - `thread-follower-load-complete-history`.
 - app-server `thread/start`, `thread/read`, `turn/*`.
@@ -113,6 +114,9 @@ FEAT-002 управляет request lifecycle; FEAT-003 выбирает thread/
 
 ## 12. История изменений {#changelog}
 
+- [2026-08-23] Актуализирован Desktop follower: отдельный app-server
+  освобождает writer после создания thread, start-turn использует v2 envelope,
+  ожидание принятия учитывает запуск актуального Desktop host.
 - [2026-07-31] Версия 0.1.23 реализовала безопасную cancellation boundary и
   reference-counted lifecycle read-only observations; живой Windows
   post-cutover turn завершился через новый worker.

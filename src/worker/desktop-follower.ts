@@ -383,7 +383,7 @@ export class CodexDesktopFollower {
   constructor(
     private readonly endpoint = WINDOWS_CODEX_IPC,
     private readonly pollMs = 500,
-    private readonly requestTimeoutMs = 10_000,
+    private readonly requestTimeoutMs = 60_000,
     private readonly completionTimeoutMs = 24 * 60 * 60 * 1_000,
     private readonly onThreadReady: (threadId: string) => Promise<void> = () =>
       Promise.resolve(),
@@ -443,16 +443,29 @@ export class CodexDesktopFollower {
         "thread-follower-start-turn",
         {
           conversationId: parsedThreadId,
-          turnStartParams: {
-            input: [{ type: "text", text: prompt, text_elements: [] }],
-            attachments: [],
-            ...(options.model ? { model: options.model } : {}),
-            ...(options.reasoningEffort
-              ? { effort: options.reasoningEffort }
-              : {}),
+          // @spec spec://modules/worker/FEAT-005-desktop-visible-delivery#contracts
+          // Desktop owns the turn and requires the same request/context envelope
+          // that its local composer sends to the current stream owner.
+          turnStart: {
+            request: {
+              threadId: parsedThreadId,
+              clientUserMessageId: randomUUID(),
+              input: [{ type: "text", text: prompt, text_elements: [] }],
+              ...(options.model ? { model: options.model } : {}),
+              ...(options.reasoningEffort
+                ? { effort: options.reasoningEffort }
+                : {}),
+            },
+            context: {
+              attachments: [],
+              commentAttachments: [],
+              inheritThreadSettings: true,
+              useAppServerPermissionDefault: true,
+              usePermissionSelection: false,
+            },
           },
         },
-        1,
+        2,
       );
       if (
         started.resultType !== undefined &&
@@ -515,11 +528,14 @@ export class CodexDesktopFollower {
     );
     try {
       await connection.connect();
-      await this.onThreadReady(ThreadIdSchema.parse(handle.threadId));
+      const threadId = ThreadIdSchema.parse(handle.threadId);
+      connection.setThreadFollowing(threadId, true);
+      await this.onThreadReady(threadId);
+      await this.waitForConversationState(connection, threadId);
       const interrupted = await connection.request(
         "thread-follower-interrupt-turn",
         {
-          conversationId: handle.threadId,
+          conversationId: threadId,
           mode: "system",
         },
         1,
@@ -533,6 +549,7 @@ export class CodexDesktopFollower {
         );
       }
     } finally {
+      connection.setThreadFollowing(handle.threadId, false);
       connection.close();
     }
   }
