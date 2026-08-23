@@ -1,7 +1,7 @@
 # Пустая карточка удалённой задачи после обновления Desktop
 
 Дата: 2026-08-23  
-Статус: исправлено в release candidate `0.2.0-alpha`
+Статус: исправление принято в `main`; macOS подтверждён, Windows gate ожидается
 
 ## Симптом
 
@@ -45,3 +45,8 @@ turn через тот же путь, что использует worker:
 
 Windows live-view остаётся обязательным exact-package gate WI-010 перед
 публикацией.
+
+Exact revision `b5c2298f3eeb65d07daca4974f9034317fe5c641` прошла main CI и
+security workflows. Windows package из этого CI run доставлен на реальный host,
+его checksum и manifest проверены. Ручной запуск подготовлен отдельно, поскольку
+политика удалённой Codex-сессии запрещает исходящее соединение worker.
