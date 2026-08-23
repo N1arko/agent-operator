@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CoordinatorStore } from "../src/coordinator/store.js";
 import { createCoordinatorApp } from "../src/coordinator/server.js";
+import { APP_VERSION } from "../src/shared/version.js";
 
 const stores: CoordinatorStore[] = [];
 const servers: Server[] = [];
@@ -51,7 +52,7 @@ describe("Coordinator HTTP", () => {
         body: JSON.stringify({
           code: enrollment.code,
           platform: "macos",
-          workerVersion: "0.1.23",
+          workerVersion: APP_VERSION,
         }),
       });
 
@@ -82,7 +83,7 @@ describe("Coordinator HTTP", () => {
           currentProjectId: null,
           currentActivity: null,
           projects: [],
-          workerVersion: "0.1.23",
+          workerVersion: APP_VERSION,
         }),
       });
     assert.equal((await heartbeat()).status, 200);
@@ -137,7 +138,7 @@ describe("Coordinator HTTP", () => {
     const address = server.address();
     assert.ok(address && typeof address !== "string");
     const base = `http://127.0.0.1:${address.port}`;
-    const consume = (code: string, workerVersion = "0.1.23") =>
+    const consume = (code: string, workerVersion = APP_VERSION) =>
       fetch(`${base}/v1/enrollment/consume`, {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -172,7 +173,7 @@ describe("Coordinator HTTP", () => {
     const address = server.address();
     assert.ok(address && typeof address !== "string");
     const base = `http://127.0.0.1:${address.port}`;
-    const consume = (code: string, workerVersion = "0.1.23") =>
+    const consume = (code: string, workerVersion = APP_VERSION) =>
       fetch(`${base}/v1/enrollment/consume`, {
         method: "POST",
         headers: { "content-type": "application/json" },

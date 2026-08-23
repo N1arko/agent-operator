@@ -4,7 +4,7 @@ services:
       context: ../..
       dockerfile: deploy/self-hosted/Dockerfile
       args:
-        AOP_VERSION: ${AOP_VERSION:-0.1.23}
+        AOP_VERSION: ${AOP_VERSION:-0.2.0-alpha.0}
         AOP_REVISION: ${AOP_REVISION:-dev}
         AOP_SOURCE: ${AOP_SOURCE:-https://github.com/N1arko/agent-operator}
         AOP_CREATED: ${AOP_CREATED:-1970-01-01T00:00:00Z}

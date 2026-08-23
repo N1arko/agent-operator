@@ -73,6 +73,10 @@ metadata.
 - Pull request CI не получает release credentials.
 - Release создаётся draft после build; public state устанавливается после
   security и clean-room gates.
+- На GitHub Free приватный release candidate сохраняет BuildKit provenance и
+  явно помеченные unsigned workflow provenance statements. GitHub-signed
+  attestations обязательны для финального tag после открытия repository;
+  private candidate не считается финальным supply-chain evidence.
 - Build artifacts передаются между jobs по digest, затем публикуются без
   повторной локальной сборки.
 - Existing `v0.1.23` остаётся historical baseline; публичная линия начинается с
@@ -180,8 +184,10 @@ read-only inventory и явного подтверждения точных targ
 4. Выполнить package install smoke на macOS/Windows.
 5. Выполнить clean-room scenario по draft artifacts.
 6. Зафиксировать evidence, zero blocking findings и immutable digests.
-7. Сделать repository public и опубликовать release.
-8. Проверить anonymous clone, GHCR pull, downloads и Quick Start links.
+7. Сделать repository public и создать финальный annotated tag.
+8. Получить GitHub-signed attestations, повторить короткий smoke и опубликовать
+   release.
+9. Проверить anonymous clone, GHCR pull, downloads и Quick Start links.
 
 При провале gate draft release удаляется или остаётся private; tag исправляется
 новой pre-release version, опубликованный artifact не перезаписывается.

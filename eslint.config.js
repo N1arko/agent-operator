@@ -9,7 +9,7 @@ export default tseslint.config(
       "node_modules/**",
       "work/**",
       "eslint.config.js",
-      "scripts/*.mjs",
+      "scripts/**/*.mjs",
     ],
   },
   eslint.configs.recommended,

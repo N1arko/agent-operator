@@ -4,6 +4,20 @@
 хранится в локальном `.env`, runtime state — в `data/`. Оба пути исключены из
 Git.
 
+## Первый запуск из release bundle
+
+Распакуйте `agent-operator-self-hosted-VERSION.tar.gz`, перейдите в каталог
+`self-hosted` и выполните:
+
+```sh
+./bootstrap.sh
+```
+
+Первый вызов создаёт `.env` и останавливается. Release bundle уже содержит
+точную GHCR image reference. Укажите собственные `AOP_PUBLIC_URL` и
+`AOP_ALLOWED_HOSTS`; для HTTPS также задайте `AOP_TLS=true`, `AOP_DOMAIN` и
+направьте DNS на host. Повторный `./bootstrap.sh` запускает coordinator.
+
 ## Первый запуск из source checkout
 
 ```sh
