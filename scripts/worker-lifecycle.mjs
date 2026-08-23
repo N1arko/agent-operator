@@ -17,7 +17,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { homedir, platform as hostPlatform } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -99,10 +99,11 @@ const packageManifest = async (packageRoot, platform) => {
   if (manifest.platform !== platform) fail(`Package is for ${manifest.platform}; host is ${platform}`);
   const nodeMajor = Number(process.versions.node.split(".")[0]);
   if (nodeMajor < manifest.nodeMajor) fail(`Node.js ${manifest.nodeMajor} or newer is required`);
-  for (const [relative, expected] of Object.entries(manifest.files)) {
-    const absolute = resolve(packageRoot, relative);
-    if (!absolute.startsWith(`${resolve(packageRoot)}/`)) fail(`Unsafe manifest path: ${relative}`);
-    if ((await sha256(absolute)) !== expected) fail(`Package integrity check failed: ${relative}`);
+  for (const [relativePath, expected] of Object.entries(manifest.files)) {
+    const absolute = resolve(packageRoot, relativePath);
+    const boundary = relative(resolve(packageRoot), absolute);
+    if (boundary.startsWith("..") || isAbsolute(boundary)) fail(`Unsafe manifest path: ${relativePath}`);
+    if ((await sha256(absolute)) !== expected) fail(`Package integrity check failed: ${relativePath}`);
   }
   return manifest;
 };

@@ -92,7 +92,7 @@ describe("worker release packages", () => {
     await mkdir(project);
     await writeFile(join(project, "user-file.txt"), "keep\n");
     const macRoot = join(temporary, "mac-install");
-    const testEnv = { AOP_TEST_MODE: "1", AOP_SERVICE_MODE: "skip" };
+    const testEnv = { AOP_TEST_MODE: "1", AOP_SERVICE_MODE: "skip", AOP_PLATFORM_OVERRIDE: "macos" };
     const serviceSmoke = process.env.AOP_OS_SERVICE_SMOKE === "1" && process.platform === "darwin";
     const macEnv = serviceSmoke ? { AOP_TEST_MODE: "1" } : testEnv;
     const macServiceArguments = serviceSmoke ? [] : ["--no-service"];
