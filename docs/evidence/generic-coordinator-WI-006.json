@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "verifiedAt": "2026-08-23T19:51:27Z",
+  "sourceRevision": "98b7623102c48a4f35d73596a5c0db083e94ee09",
+  "checks": {
+    "typecheck": "passed",
+    "lintAndSpecLint": "passed",
+    "fullTests": { "passed": 60, "failed": 0 },
+    "focusedDeploymentCases": {
+      "casesPerRun": 5,
+      "runs": 3,
+      "passedExecutions": 15,
+      "failedExecutions": 0
+    },
+    "productionDependencyAudit": "no known vulnerabilities",
+    "composeConfigs": ["base", "build", "tls"],
+    "caddyConfig": "valid"
+  },
+  "image": {
+    "tag": "agent-operator-coordinator:wi006",
+    "repositoryDigest": "sha256:a9a13dfbbbb35ef565bec67767c729b0f6d7251c335abac3069deb288d9b57eb",
+    "reportedRevision": "98b7623102c48a4f35d73596a5c0db083e94ee09",
+    "nodeBase": "node:24.19.0-alpine3.24@sha256:d32cdf619f63fe0471182d08996dd516c6275bb5fd31ae06e55a570bd9e1ad43",
+    "caddyBase": "caddy:2.11.4-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648",
+    "runtimeContents": {
+      "compiledFiles": 63,
+      "sourceIncluded": false,
+      "testsIncluded": false,
+      "workerIncluded": false,
+      "licenseIncluded": true
+    },
+    "vulnerabilityScan": {
+      "tool": "trivy 0.73.0",
+      "containerDigest": "sha256:7cced7cae583819fc7806d4cbc0dbbc7cad18b99f7d3e235192e6da8c091045c",
+      "highOrCriticalFindings": 0
+    }
+  },
+  "contractsObserved": {
+    "localBootstrap": "clean bootstrap generated configuration, then started a healthy coordinator",
+    "enrollment": "cleanroom-mac enrolled and authenticated heartbeat",
+    "persistence": "credential remained valid after coordinator restart",
+    "revocation": "next heartbeat returned 401 after revoke",
+    "backupRestore": "restore returned the credential to an authenticated 200 heartbeat and retained devices, queue and schema integrity",
+    "doctor": "reported SQLite integrity ok, credential key mode 600 and expected tables",
+    "containerBoundary": "uid 1000, read-only application filesystem, writable data volume",
+    "genericSurface": "deployment tests found no private domain, host or device identity in product files",
+    "privateProduction": "not mutated; staged migration and rollback through tag v0.1.23 are documented"
+  },
+  "freshLinuxHost": {
+    "profile": "ephemeral Docker-in-Docker host",
+    "hostImage": "docker:29.7.2-dind-alpine3.24@sha256:12e683a161823b2a839aeea999b9d960e6e1f9a97b1679ad6b441982e2d9cf07",
+    "dockerServer": "29.7.2",
+    "compose": "v5.4.0",
+    "bootstrap": "passed",
+    "health": {
+      "status": 200,
+      "version": "0.1.23",
+      "revision": "98b7623102c48a4f35d73596a5c0db083e94ee09"
+    },
+    "doctor": "passed",
+    "credentialKeyMode": "600",
+    "containerUser": "1000:1000"
+  },
+  "secretScan": {
+    "tool": "gitleaks 8.30.1",
+    "history": { "commitsScanned": 42, "bytesScanned": 1620302, "findings": 0 },
+    "trackedTree": { "filesScanned": 188, "bytesScanned": 851601, "findings": 0 }
+  }
+}

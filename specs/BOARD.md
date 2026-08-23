@@ -7,7 +7,6 @@
 
 | Work | Title | Specs | Owner | Priority |
 |---|---|---|---|---|
-| [WI-007](work/WI-007-worker-lifecycle.md) | Lifecycle worker packages | INFRA-003, INFRA-004 | @codex-mac | P0 |
 | [WI-008](work/WI-008-release-pipeline.md) | CI и release pipeline | INFRA-004 | @codex-mac | P0 |
 | [WI-009](work/WI-009-public-documentation.md) | Публичная документация | PROP-007, INFRA-004 | @codex-mac | P1 |
 | [WI-010](work/WI-010-clean-room-publication.md) | Clean-room acceptance и публикация | PROP-007, INFRA-004 | @codex-mac | P0 |
@@ -16,7 +15,7 @@
 
 | Work | Title | Specs | Owner | Started | Blocker |
 |---|---|---|---|---|---|
-| [WI-006](work/WI-006-generic-coordinator.md) | Generic self-hosted coordinator | INFRA-001, INFRA-004 | @codex-mac | 2026-08-23 | — |
+| [WI-007](work/WI-007-worker-lifecycle.md) | Lifecycle worker packages | INFRA-003, INFRA-004 | @codex-mac | 2026-08-23 | — |
 
 ## Blocked
 
@@ -27,6 +26,7 @@
 
 | Work | Specs | Title | Owner | Date |
 |---|---|---|---|---|
+| [WI-006](work/archive/2026/WI-006-generic-coordinator.md) | INFRA-001, INFRA-004 | Generic self-hosted coordinator | @codex-mac | 2026-08-23 |
 | [WI-005](work/archive/2026/WI-005-device-enrollment.md) | FEAT-007 | Enrollment и revoke устройств | @codex-mac | 2026-08-23 |
 | [WI-004](work/archive/2026/WI-004-public-repository-security.md) | PROP-007, INFRA-004 | Security baseline публичного repository | @codex-mac | 2026-08-23 |
 | [WI-003](work/archive/2026/WI-003-open-source-spec-space.md) | PROP-007, FEAT-007, PROP-102, INFRA-004 | Принять канон open-source v0.2 | @codex-mac | 2026-08-23 |
