@@ -4,6 +4,7 @@ param(
   [Parameter(Mandatory = $true)][string[]]$Project,
   [string]$InstallRoot,
   [string]$CodexBin,
+  [string[]]$CodexArg,
   [string]$CodexHome,
   [switch]$NoService,
   [switch]$NoIntegration
@@ -17,6 +18,7 @@ $arguments = @(
 foreach ($path in $Project) { $arguments += @("--project", $path) }
 if ($InstallRoot) { $arguments += @("--install-root", $InstallRoot) }
 if ($CodexBin) { $arguments += @("--codex-bin", $CodexBin) }
+foreach ($value in $CodexArg) { $arguments += @("--codex-arg", $value) }
 if ($CodexHome) { $arguments += @("--codex-home", $CodexHome) }
 if ($NoService) { $arguments += "--no-service" }
 if ($NoIntegration) { $arguments += "--no-integration" }
