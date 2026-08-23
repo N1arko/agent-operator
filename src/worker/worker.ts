@@ -347,6 +347,11 @@ export class Worker {
         title,
         turnOptions,
       );
+      // @spec spec://modules/worker/FEAT-005-desktop-visible-delivery#scenarios.new
+      // Current Desktop treats the app-server process that created a thread as
+      // its active writer. Release that writer before asking the visible
+      // Desktop window to become the stream owner.
+      await this.options.appServer.stop();
       try {
         handle = await desktopFollower.resumeThread(
           threadId,

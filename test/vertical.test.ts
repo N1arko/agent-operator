@@ -20,6 +20,7 @@ import { Worker } from "../src/worker/worker.js";
 
 class FakeAppServer {
   creates: Array<{ cwd: string; title: string }> = [];
+  stops = 0;
   starts: Array<{ cwd: string; prompt: string; title: string }> = [];
   resumes: Array<{
     threadId: string;
@@ -112,6 +113,7 @@ class FakeAppServer {
   }
 
   stop(): Promise<void> {
+    this.stops += 1;
     return Promise.resolve();
   }
 
@@ -406,6 +408,7 @@ describe("local vertical scenario", () => {
       /^\[Agent Operator\] first$/,
     );
     assert.equal(fakeAppServer.starts.length, 0);
+    assert.equal(fakeAppServer.stops, 1);
     assert.equal(desktopResumes[0]?.threadId, fakeAppServer.createdThreadId);
     assert.equal(desktopOptions[0]?.model, "test-model");
     assert.equal(desktopOptions[0].reasoningEffort, "medium");
