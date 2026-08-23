@@ -24,12 +24,16 @@
 
 ## Acceptance
 
-- [ ] EN/RU release-critical paths семантически совпадают.
-- [ ] Все команды выполняются из public artifacts и placeholders.
-- [ ] Personal endpoint/path/identity отсутствуют в current product surface.
-- [ ] Security/data flow/limitations описаны проверяемо.
-- [ ] Links, examples и clean checkout docs tests проходят.
+- [x] EN/RU release-critical paths семантически совпадают.
+- [x] Все команды выполняются из public artifacts и placeholders.
+- [x] Personal endpoint/path/identity отсутствуют в current product surface.
+- [x] Security/data flow/limitations описаны проверяемо.
+- [x] Links, examples и clean checkout docs tests проходят.
 
 ## Result
 
-Заполняется при завершении.
+Accepted 2026-08-23 на implementation revision
+`1995940bbf25a2ab5c5ef34a7b3a7b2830bf2476`. Публичная поверхность содержит
+32 документа и 11 синхронизированных EN/RU пар; link/private-reference checker,
+clean-checkout docs test, 65 тестов, CI и Security baseline прошли. Полная
+запись: `docs/evidence/public-documentation-WI-009.json`.

@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "verifiedAt": "2026-08-23T21:17:58Z",
+  "sourceRevision": "1995940bbf25a2ab5c5ef34a7b3a7b2830bf2476",
+  "documentation": {
+    "documents": 32,
+    "englishRussianPairs": 11,
+    "brokenLocalLinks": 0,
+    "privateProductSurfaceReferences": 0,
+    "releaseVersion": "0.2.0-alpha",
+    "publicPlaceholder": "operator.example.com"
+  },
+  "cleanCheckout": {
+    "installation": "pnpm install --frozen-lockfile",
+    "docsCheck": "passed",
+    "compiledDocsTest": "passed",
+    "workingTreeAfterVerification": "clean",
+    "node": "v24.19.0",
+    "pnpm": "11.9.0",
+    "host": "macOS 26.5.2 arm64"
+  },
+  "localVerification": {
+    "typecheck": "passed",
+    "lint": "passed",
+    "tests": { "passed": 65, "failed": 0 },
+    "productionAudit": "no-known-vulnerabilities",
+    "macosWorkerArchiveReproducibility": "passed",
+    "windowsWorkerArchiveReproducibility": "passed",
+    "selfHostedArchiveReproducibility": "passed",
+    "bundledEnglishRussianReadmes": "passed"
+  },
+  "github": {
+    "ci": {
+      "runId": 32666754002,
+      "url": "https://github.com/N1arko/agent-operator/actions/runs/32666754002",
+      "revision": "1995940bbf25a2ab5c5ef34a7b3a7b2830bf2476",
+      "conclusion": "success",
+      "jobs": {
+        "workerArtifacts": { "id": 97261227665, "conclusion": "success" },
+        "quality": { "id": 97261227745, "conclusion": "success" },
+        "macosSmoke": { "id": 97261280886, "conclusion": "success" },
+        "windowsSmoke": { "id": 97261280881, "conclusion": "success" }
+      }
+    },
+    "security": {
+      "runId": 32666753984,
+      "url": "https://github.com/N1arko/agent-operator/actions/runs/32666753984",
+      "revision": "1995940bbf25a2ab5c5ef34a7b3a7b2830bf2476",
+      "conclusion": "success",
+      "jobs": {
+        "repositorySecrets": { "id": 97261227549, "conclusion": "success" },
+        "productionDependencies": { "id": 97261227653, "conclusion": "success" }
+      }
+    }
+  }
+}
