@@ -4,7 +4,8 @@
 
 ### WI-010 — clean-room acceptance и публикация
 
-- Final source version: `0.2.0-alpha`; release commit ещё не создан.
+- Final source version: `0.2.0-alpha`; candidate base `c62378f`, последние
+  pre-public gates готовятся в release PR.
 - Private `v0.2.0-alpha.0` rehearsal прошла checksum, isolated coordinator,
   macOS install/doctor, enrollment, backup/restore, restart/reconnect, task,
   follow-up, cancel и temporary file.

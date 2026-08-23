@@ -74,6 +74,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: node scripts/package-workers.mjs both
       - run: node scripts/release/package-self-hosted.mjs
+      - run: node scripts/release/verify-artifact-safety.mjs work/worker-packages/macos work/worker-packages/windows work/self-hosted-package
       - run: pnpm licenses list --prod --json > release/production-licenses.json
       - name: macOS worker SPDX SBOM
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610
