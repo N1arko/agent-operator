@@ -87,7 +87,7 @@ Coordinator должен сохранять один активный проце
 │   ├── backups/
 │   ├── compose.yaml
 │   └── Caddyfile
-└── release/agent-operator-worker-0.1.22.zip
+└── release/agent-operator-worker-0.1.23.zip
 ```
 
 ## 6. Контейнеры
@@ -214,6 +214,11 @@ timer `agent-operator-backup.timer` запускает скрипт ежедне
 - контрольный `agent_start` создал задачу
   `019fa656-f63a-7bb0-98f5-bae1b7691cfd` и вернул
   `WINDOWS_DESKTOP_START_015_OK`.
+- coordinator, Mac-worker и Windows-worker обновлены до `0.1.23`;
+- Windows-worker после post-cutover работает одной парой PID `30540/23128`,
+  Scheduled Task указывает на каталог `0.1.23`, diagnose завершился с кодом 0;
+- опубликованный Windows bundle `0.1.23` имеет SHA-256
+  `505a1623c69d5a9b3566cabb3279d1eecc2d5ceb9b3fa49fc2fd4f9dd9503c74`.
 
 ## 11. Готовность
 

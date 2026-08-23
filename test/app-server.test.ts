@@ -1,11 +1,17 @@
 import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { resolve } from "node:path";
 import test from "node:test";
 import {
+  CodexAppServer,
   extractTurnProgressNotification,
   extractTurnProgressSnapshot,
   extractCompletedTurnText,
   successfulTurnStatus,
 } from "../src/worker/app-server.js";
+
+const fakeAppServerPath = resolve("test/fixtures/fake-app-server.ts");
 
 test("does not finalize a Desktop-owned turn on transient read states", () => {
   assert.equal(successfulTurnStatus("interrupted"), false);
@@ -218,4 +224,51 @@ test("extracts progress from read-only active turn snapshots", () => {
     ],
   );
   assert.equal(JSON.stringify(updates).includes("must stay"), false);
+});
+
+// @spec spec://modules/worker/INFRA-002-worker-runtime#acceptance
+test("keeps app-server alive until every read-only observer completes", async () => {
+  const appServer = new CodexAppServer(
+    process.execPath,
+    40,
+    [fakeAppServerPath],
+  );
+  try {
+    const fast = appServer.waitForTurn("thread-1", "turn-fast");
+    const slow = appServer.waitForTurn("thread-1", "turn-slow");
+
+    assert.deepEqual(await fast, {
+      status: "completed",
+      text: "fast complete",
+    });
+    assert.deepEqual(await slow, {
+      status: "completed",
+      text: "slow complete",
+    });
+  } finally {
+    await appServer.stop();
+  }
+});
+
+// @spec spec://modules/worker/FEAT-005-desktop-visible-delivery#errors
+test("restarts app-server and resumes a read-only observer after process loss", async () => {
+  const directory = await mkdtemp(resolve(tmpdir(), "aop-app-server-"));
+  const marker = resolve(directory, "crashed-once");
+  const appServer = new CodexAppServer(process.execPath, 40, [
+    fakeAppServerPath,
+    "crash-once",
+    marker,
+  ]);
+  try {
+    assert.deepEqual(
+      await appServer.waitForTurn("thread-1", "turn-recovered"),
+      {
+        status: "completed",
+        text: "recovered complete",
+      },
+    );
+  } finally {
+    await appServer.stop();
+    await rm(directory, { recursive: true, force: true });
+  }
 });

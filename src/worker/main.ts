@@ -65,7 +65,7 @@ if (process.argv[2] === "diagnose") {
       currentProjectId: null,
       currentActivity: null,
       projects,
-      workerVersion: "0.1.22",
+      workerVersion: "0.1.23",
     });
     authenticated = true;
   }

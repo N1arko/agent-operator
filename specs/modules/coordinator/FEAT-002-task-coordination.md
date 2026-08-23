@@ -70,6 +70,9 @@ request.
   короткого delivery lease.
 - Второй явно созданный request к тому же thread ждёт завершения активного
   turn.
+- Worker не освобождает active slot после ошибки interrupt. Такой turn остаётся
+  в состоянии draining до фактического terminal result; новые request ждут в
+  очереди и не могут попасть в продолжающийся Desktop-turn.
 - Cancel корневого request завершает его связанные queued follow-up и
   освобождает worker.
 
@@ -81,8 +84,11 @@ request.
 ### Отмена и lease {#scenarios.cancel}
 
 Caller отменяет свой request по точному ID. Coordinator ставит `cancelled`;
-worker прерывает активный Desktop turn либо удаляет queued item. Истёкший lease
-даёт терминальный результат и освобождает очередь.
+worker удаляет queued item либо отправляет interrupt активному Desktop turn.
+Подтверждённый interrupt отменяет локальное наблюдение и освобождает очередь.
+Ошибка или timeout interrupt сохраняет active slot до наблюдаемого завершения
+исходного turn. Его поздний результат не создаёт второй coordinator result для
+уже отменённого request. Истёкший lease использует ту же безопасную границу.
 
 ### Параллельность {#scenarios.concurrency}
 
@@ -140,7 +146,10 @@ Routing skill получает model catalog один раз на актуаль
 Unknown agent, unavailable project, queue capacity, invalid ownership,
 unsupported model/reasoning, expired lease и execution failure завершаются
 предсказуемой ошибкой или одним failed result. Принятая Desktop-команда не
-повторяется через headless path.
+повторяется через headless path. Потеря read-only app-server во время принятого
+Desktop turn восстанавливает наблюдение из сохранённой истории. Один
+завершившийся наблюдатель не останавливает app-server, пока существуют другие
+активные наблюдатели.
 
 ## 9. Зарегистрированный дефект {#known-issues}
 
@@ -173,6 +182,11 @@ delivery path требуется восстановить по caller и worker 
 - Два явно созданных request к одному thread исполняются последовательно при
   active, boundary, queued и restart сценариях.
 - Cancel корневого request не оставляет исполняемый follow-up того же root.
+- Timeout interrupt не освобождает active slot и не допускает input следующего
+  request в продолжающийся turn.
+- Позднее завершение отменённого turn освобождает очередь без второго result.
+- Параллельные read-only наблюдатели удерживают app-server до завершения каждого
+  из них.
 
 ## 12. Связи {#relations}
 
@@ -181,6 +195,12 @@ delivery path требуется восстановить по caller и worker 
 
 ## 13. История изменений {#changelog}
 
+- [2026-07-31] Версия 0.1.23 реализовала FIX-003: draining после timeout
+  interrupt, один result отменённого request, подавление позднего progress,
+  observation leases и восстановление read-only app-server.
+- [2026-07-31] Зарегистрирован FIX-003 после слияния нового input с
+  продолжающимся turn при timeout Desktop interrupt и ложного `failed` от
+  преждевременного idle stop app-server.
 - [2026-07-28] FIX-001 уточнён как двойной dispatch и наложение связанных
   запросов.
 - [2026-07-28] Зарегистрирован FIX-002 с model-agnostic профилями выполнения.

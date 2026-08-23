@@ -76,7 +76,7 @@ export const createCoordinatorApp = (
   };
 
   app.get("/health", (_request, response) => {
-    response.json({ status: "ok", version: "0.1.22" });
+    response.json({ status: "ok", version: "0.1.23" });
   });
 
   app.get("/v1/onboarding/worker.zip", authenticate, (_request, response) => {
@@ -88,7 +88,7 @@ export const createCoordinatorApp = (
     response.type("application/zip");
     response.setHeader(
       "content-disposition",
-      'attachment; filename="agent-operator-worker-0.1.22.zip"',
+      'attachment; filename="agent-operator-worker-0.1.23.zip"',
     );
     createReadStream(path).pipe(response);
   });

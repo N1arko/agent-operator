@@ -12,6 +12,7 @@
 
 | Work | Title | Specs | Owner | Started | Blocker |
 |---|---|---|---|---|---|
+| [WI-002](work/WI-002-release-0.1.23-baseline.md) | Зафиксировать baseline 0.1.23 | FEAT-002, FEAT-005, INFRA-002, INFRA-003 | @codex-mac | 2026-08-23 | — |
 
 ## Blocked
 

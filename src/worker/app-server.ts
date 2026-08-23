@@ -24,6 +24,7 @@ export type TurnHandle = {
   threadId: string;
   turnId: string;
   completed: Promise<{ status: string; text: string }>;
+  cancelObservation?: () => Promise<void>;
 };
 
 export type TurnOptions = {
@@ -97,6 +98,31 @@ const turnStatusValue = (turn: JsonObject): string => {
 
 export const successfulTurnStatus = (status: string): boolean =>
   ["completed", "complete", "done"].includes(status.toLowerCase());
+
+const recoverableAppServerError = (error: unknown): boolean =>
+  error instanceof Error &&
+  (error.message.includes("app-server is not running") ||
+    error.message.includes("codex app-server exited"));
+
+const observationDelay = (
+  durationMs: number,
+  signal?: AbortSignal,
+): Promise<void> =>
+  new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new Error("Turn observation cancelled"));
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", abort);
+      resolve();
+    }, durationMs);
+    const abort = (): void => {
+      clearTimeout(timer);
+      reject(new Error("Turn observation cancelled"));
+    };
+    signal?.addEventListener("abort", abort, { once: true });
+  });
 
 export const parseLocalThread = (value: unknown): LocalThread => {
   const thread = asObject(value);
@@ -337,6 +363,7 @@ export class CodexAppServer {
     (message: JsonObject) => void
   >();
   private idleTimer: NodeJS.Timeout | null = null;
+  private activeReadObservers = 0;
 
   constructor(
     private readonly codexBin: string,
@@ -481,17 +508,32 @@ export class CodexAppServer {
     threadId: string,
     turnId: string,
     onProgress?: TurnOptions["onProgress"],
+    signal?: AbortSignal,
   ): Promise<{ status: string; text: string }> {
+    // @spec spec://modules/worker/INFRA-002-worker-runtime#decisions
+    // Each read-only observer holds an app-server lease. An observer finishing
+    // must not arm the idle stop while another accepted Desktop turn is still
+    // being observed.
+    this.activeReadObservers += 1;
     this.cancelIdleStop();
-    await this.ensureStarted();
     const deadline = Date.now() + 24 * 60 * 60 * 1_000;
     const revisions = new Map<string, { value: string; revision: number }>();
     try {
+      await this.ensureStarted();
       while (Date.now() < deadline) {
-        const response = await this.request("thread/read", {
-          threadId,
-          includeTurns: true,
-        });
+        if (signal?.aborted) throw new Error("Turn observation cancelled");
+        let response: JsonObject;
+        try {
+          response = await this.request("thread/read", {
+            threadId,
+            includeTurns: true,
+          });
+        } catch (error) {
+          if (!recoverableAppServerError(error)) throw error;
+          await this.ensureStarted();
+          await observationDelay(500, signal);
+          continue;
+        }
         const thread = asObject(response.thread);
         const turns = Array.isArray(thread?.turns)
           ? thread.turns
@@ -520,10 +562,11 @@ export class CodexAppServer {
             };
           }
         }
-        await new Promise((resolve) => setTimeout(resolve, 500));
+        await observationDelay(500, signal);
       }
       throw new Error(`Turn ${turnId} did not complete within 24 hours`);
     } finally {
+      this.activeReadObservers = Math.max(0, this.activeReadObservers - 1);
       this.scheduleIdleStop();
     }
   }
@@ -678,7 +721,7 @@ export class CodexAppServer {
       clientInfo: {
         name: "agent-operator-worker",
         title: "Agent Operator worker",
-        version: "0.1.22",
+        version: "0.1.23",
       },
       capabilities: {
         experimentalApi: true,
@@ -754,6 +797,7 @@ export class CodexAppServer {
   }
 
   private scheduleIdleStop(): void {
+    if (this.activeReadObservers > 0) return;
     if (this.idleTimer) clearTimeout(this.idleTimer);
     this.idleTimer = setTimeout(() => void this.stop(), this.idleTimeoutMs);
   }

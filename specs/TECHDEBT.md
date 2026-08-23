@@ -32,6 +32,21 @@
 - условие закрытия: Codex предоставляет стабильный поддерживаемый API проектов
   или worker получает безопасное автоматическое переобнаружение.
 
+### TD-003: Production advisories транзитивных зависимостей
+
+- Area: `coordinator`
+- Related specs: `spec://common/PROP-002-STACK#services`
+- Introduced by: обнаружено при повторной сверке baseline `0.1.23` 2026-08-23
+- Current state: `pnpm audit --prod` сообщает один high, три moderate и один
+  low advisory через транзитивные зависимости `@modelcontextprotocol/sdk`.
+- Risk: специально сформированный вход может использовать известные проблемы
+  host parsing или алгоритмической сложности до публичного релиза.
+- Trigger: публично доступный coordinator принимает недоверенный MCP/HTTP input
+  на уязвимой версии dependency graph.
+- Mitigation: обновить MCP SDK и lockfile до исправленных транзитивных версий,
+  повторить contract/E2E и требовать zero high/critical в release gate.
+- Work: —
+
 ## Resolved
 
 Записей нет.

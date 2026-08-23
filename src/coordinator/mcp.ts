@@ -97,7 +97,7 @@ export const createMcpServer = (
 ): McpServer => {
   const server = new McpServer({
     name: "agent-operator",
-    version: "0.1.22",
+    version: "0.1.23",
   });
 
   server.registerTool(

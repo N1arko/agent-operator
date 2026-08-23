@@ -417,6 +417,7 @@ export class CodexDesktopFollower {
     externalCompletion?: (
       threadId: string,
       turnId: string,
+      signal?: AbortSignal,
     ) => Promise<{ status: string; text: string }>,
   ): Promise<TurnHandle> {
     const parsedThreadId = ThreadIdSchema.parse(threadId);
@@ -468,6 +469,9 @@ export class CodexDesktopFollower {
         typeof startedTurn?.id === "string"
           ? startedTurn.id
           : `desktop-${randomUUID()}`;
+      const observationController = externalCompletion
+        ? new AbortController()
+        : undefined;
       const completed = externalCompletion
         ? this.waitForExternalCompletion(
             connection,
@@ -475,6 +479,7 @@ export class CodexDesktopFollower {
             turnId,
             externalCompletion,
             options.onProgress,
+            observationController?.signal,
           )
         : this.waitForCompletion(
             connection,
@@ -487,6 +492,14 @@ export class CodexDesktopFollower {
         threadId: parsedThreadId,
         turnId,
         completed,
+        ...(observationController
+          ? {
+              cancelObservation: async (): Promise<void> => {
+                observationController.abort();
+                await completed.catch(() => undefined);
+              },
+            }
+          : {}),
       };
     } catch (error) {
       connection.setThreadFollowing(parsedThreadId, false);
@@ -599,8 +612,10 @@ export class CodexDesktopFollower {
     externalCompletion: (
       threadId: string,
       turnId: string,
+      signal?: AbortSignal,
     ) => Promise<{ status: string; text: string }>,
     onProgress?: TurnOptions["onProgress"],
+    signal?: AbortSignal,
   ): Promise<{ status: string; text: string }> {
     const revisions = new Map<string, { value: string; revision: number }>();
     let monitoring = true;
@@ -627,7 +642,7 @@ export class CodexDesktopFollower {
     };
     const monitoringPromise = monitor();
     try {
-      const result = await externalCompletion(threadId, turnId);
+      const result = await externalCompletion(threadId, turnId, signal);
       await connection.request(
         "thread-follower-load-complete-history",
         { conversationId: threadId },

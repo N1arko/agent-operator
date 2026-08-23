@@ -389,6 +389,8 @@ describe("Codex Desktop follower", () => {
         {},
         () => externalCompletion,
       );
+      // @spec spec://modules/worker/FEAT-005-desktop-visible-delivery#scenarios.terminal
+      assert.equal(typeof handle.cancelObservation, "function");
       let closed = false;
       void connectionClosed.then(() => {
         closed = true;

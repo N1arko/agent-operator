@@ -58,7 +58,10 @@ app-server и открыть deep link. После принятия follower sta
 
 Сохранённый `completed` с финальным agent message даёт result. Переходный
 `interrupted` read-only snapshot продолжает polling. Cancel/lease вызывает
-follower interrupt и терминальный cancelled result.
+follower interrupt и терминальный cancelled result. После подтверждённого
+interrupt worker завершает read-only observation. При timeout interrupt
+observation продолжает сопровождать исходный turn, а worker удерживает очередь
+до его terminal boundary.
 
 ## 6. Данные {#data}
 
@@ -80,7 +83,9 @@ binding и pending request.
 
 Timeout snapshot, закрытый IPC, rejected follower request, unsupported frame,
 не найденный thread и terminal failed/cancelled публикуют конкретный result.
-Промежуточное состояние не завершает request раньше Desktop.
+Промежуточное состояние не завершает request раньше Desktop. Read-only
+app-server перезапускается и перечитывает thread после потери процесса;
+idle timeout не действует при наличии активных observation leases.
 
 ## 9. Трассировка реализации {#traceability}
 
@@ -98,6 +103,9 @@ Timeout snapshot, закрытый IPC, rejected follower request, unsupported f
 - Открытая карточка обновляется без restart Desktop.
 - Mac и Windows проходят живой двусторонний E2E.
 - Worker возвращается idle, очередь пуста.
+- Timeout follower interrupt оставляет следующий prompt в очереди до
+  завершения исходного Desktop turn.
+- Несколько observation одного thread не останавливают app-server друг у друга.
 
 ## 11. Связи {#relations}
 
@@ -105,4 +113,7 @@ FEAT-002 управляет request lifecycle; FEAT-003 выбирает thread/
 
 ## 12. История изменений {#changelog}
 
+- [2026-07-31] Версия 0.1.23 реализовала безопасную cancellation boundary и
+  reference-counted lifecycle read-only observations; живой Windows
+  post-cutover turn завершился через новый worker.
 - [2026-07-28] Сведены AOP-073, 076 и 078, подтверждённые E2E 0.1.18.

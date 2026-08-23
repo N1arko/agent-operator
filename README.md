@@ -44,12 +44,14 @@ VPS выполняет роль mailbox и presence-сервиса: хранит
 - [Обновление Windows-worker 0.1.19](docs/UPDATE_WINDOWS_0.1.19.md)
 - [Обновление Windows-worker 0.1.20](docs/UPDATE_WINDOWS_0.1.20.md)
 - [Обновление Windows-worker 0.1.22](docs/UPDATE_WINDOWS_0.1.22.md)
+- [Обновление Windows-worker 0.1.23](docs/UPDATE_WINDOWS_0.1.23.md)
 - [Инструкция эксплуатации](docs/OPERATIONS.md)
 - [Mac Desktop E2E 0.1.15](docs/E2E_MAC_DESKTOP_0.1.15.md)
 - [Windows Desktop E2E 0.1.15](docs/E2E_WINDOWS_DESKTOP_0.1.15.md)
 - [Release E2E 0.1.16](docs/E2E_RELEASE_0.1.16.md)
 - [Release E2E 0.1.18](docs/E2E_RELEASE_0.1.18.md)
 - [Release E2E 0.1.22](docs/E2E_RELEASE_0.1.22.md)
+- [Release E2E 0.1.23](docs/E2E_RELEASE_0.1.23.md)
 - [Исторический канбан разработки](KANBAN.md)
 
 ## Статус
@@ -142,3 +144,7 @@ Windows E2E подтвердил короткий, 48-секундный и па
 Версия `0.1.22` атомарно выдаёт inbox message одному worker и восстанавливает
 неподтверждённую доставку после короткого delivery lease. Cancellation во
 время принятия Desktop-turn прерывает локальный turn и освобождает очередь.
+
+Версия `0.1.23` удерживает очередь при timeout Desktop interrupt, прекращает
+публикацию progress отменённого request и защищает параллельные read-only
+observations от преждевременного idle stop app-server.

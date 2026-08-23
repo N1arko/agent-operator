@@ -31,7 +31,7 @@ Windows-worker:
 ```powershell
 Get-ScheduledTask -TaskName "Agent Operator Worker"
 Get-ScheduledTaskInfo -TaskName "Agent Operator Worker"
-& "$env:LOCALAPPDATA\AgentOperator\0.1.22\diagnose.ps1"
+& "$env:LOCALAPPDATA\AgentOperator\0.1.23\diagnose.ps1"
 ```
 
 Через MCP проверить `agents_list`, затем `agent_status` для `mac` и `windows`.

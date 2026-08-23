@@ -30,6 +30,8 @@ Codex.
 
 - Worker остаётся запущенным, выполняя heartbeat и long poll.
 - Codex app-server стартует по запросу и останавливается после idle timeout.
+- Активные read-only observation leases откладывают idle stop app-server до
+  завершения последнего наблюдателя.
 - Один process worker обслуживает одну identity.
 - Один активный turn сохраняет предсказуемость локального Codex.
 - Локальные config/state/temp directories задаются явно.
@@ -91,4 +93,6 @@ stdout/stderr и active request используются для диагност
 
 ## 13. История изменений {#changelog}
 
+- [2026-07-31] Версия 0.1.23 добавила reference-counted observation leases для
+  lifecycle app-server и развёрнута на coordinator, Mac и Windows.
 - [2026-07-28] Сведены AOP-030–044, 086, 087 и 092.

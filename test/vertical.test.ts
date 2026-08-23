@@ -218,6 +218,10 @@ describe("local vertical scenario", () => {
     const desktopResumes: Array<{ threadId: string; prompt: string }> = [];
     const desktopOptions: TurnOptions[] = [];
     const desktopInterrupts: TurnHandle[] = [];
+    const desktopPromptsByTurn = new Map<string, string>();
+    const desktopOptionsByTurn = new Map<string, TurnOptions>();
+    const desktopStartedAt = new Map<string, number>();
+    const desktopCompletedAt = new Map<string, number>();
     const desktopFollower = {
       readThread(threadId: string): Promise<LocalThread> {
         if (threadId === fakeAppServer.createdThreadId) {
@@ -239,12 +243,13 @@ describe("local vertical scenario", () => {
       ): Promise<TurnHandle> {
         desktopResumes.push({ threadId, prompt });
         desktopOptions.push(options);
+        const turnId = `desktop-turn-${desktopResumes.length}`;
         if (prompt === "progress") {
           setTimeout(
             () =>
               void options.onProgress?.({
                 threadId,
-                turnId: `desktop-turn-${desktopResumes.length}`,
+                turnId,
                 itemId: "commentary-1",
                 revision: 1,
                 phase: "commentary",
@@ -254,14 +259,22 @@ describe("local vertical scenario", () => {
             5,
           );
         }
+        desktopPromptsByTurn.set(turnId, prompt);
+        desktopOptionsByTurn.set(turnId, options);
+        desktopStartedAt.set(turnId, Date.now());
         const handle: TurnHandle = {
           threadId,
-          turnId: `desktop-turn-${desktopResumes.length}`,
+          turnId,
           completed: new Promise<{ status: string; text: string }>((resolve) =>
             setTimeout(
-              () => resolve({ status: "completed", text: `done: ${prompt}` }),
+              () => {
+                desktopCompletedAt.set(turnId, Date.now());
+                resolve({ status: "completed", text: `done: ${prompt}` });
+              },
               prompt === "wait for cancellation"
                 ? 5_000
+                : prompt === "wait for failed cancellation"
+                  ? 1_500
                 : prompt === "cancel during startup"
                   ? 5_000
                 : prompt === "progress"
@@ -276,6 +289,21 @@ describe("local vertical scenario", () => {
       },
       interrupt(handle: TurnHandle): Promise<void> {
         desktopInterrupts.push(handle);
+        if (
+          desktopPromptsByTurn.get(handle.turnId) ===
+          "wait for failed cancellation"
+        ) {
+          void desktopOptionsByTurn.get(handle.turnId)?.onProgress?.({
+            threadId: handle.threadId,
+            turnId: handle.turnId,
+            itemId: "late-commentary",
+            revision: 1,
+            phase: "commentary",
+            text: "must stay local after cancellation",
+            plan: null,
+          });
+          return Promise.reject(new Error("interrupt timed out"));
+        }
         return Promise.resolve();
       },
     };
@@ -609,6 +637,125 @@ describe("local vertical scenario", () => {
     assert.equal(desktopInterrupts.length, 1);
     assert.equal(store.countOutstandingRequests("mac"), 0);
 
+    // @spec spec://modules/coordinator/FEAT-002-task-coordination#scenarios.cancel
+    const failedInterrupt = await client.callTool({
+      name: "agent_thread_send",
+      arguments: {
+        agentId: "mac",
+        threadId: fakeAppServer.externalThread.threadId,
+        message: "wait for failed cancellation",
+      },
+    });
+    const failedInterruptMessage = failedInterrupt.structuredContent as {
+      id: string;
+    };
+    const failedDeliveryDeadline = Date.now() + 2_000;
+    while (
+      store.getMessage(failedInterruptMessage.id).status !== "delivered" &&
+      Date.now() < failedDeliveryDeadline
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await client.callTool({
+      name: "agent_cancel",
+      arguments: { messageId: failedInterruptMessage.id },
+    });
+    const failedInterruptDeadline = Date.now() + 2_000;
+    while (
+      !desktopInterrupts.some(
+        (handle) =>
+          desktopPromptsByTurn.get(handle.turnId) ===
+          "wait for failed cancellation",
+      ) &&
+      Date.now() < failedInterruptDeadline
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+
+    const afterFailedInterrupt = await client.callTool({
+      name: "agent_thread_send",
+      arguments: {
+        agentId: "mac",
+        threadId: fakeAppServer.externalThread.threadId,
+        message: "after failed cancellation",
+      },
+    });
+    const afterFailedInterruptMessage =
+      afterFailedInterrupt.structuredContent as { id: string };
+    await new Promise((resolve) => setTimeout(resolve, 75));
+    assert.equal(
+      desktopResumes.some(
+        (entry) => entry.prompt === "after failed cancellation",
+      ),
+      false,
+    );
+
+    let failedCancellationCursor = cancellationOutput.nextCursor;
+    let afterFailedInterruptResult:
+      | { replyTo: string; status: string; text: string }
+      | undefined;
+    for (
+      let attempt = 0;
+      attempt < 5 && !afterFailedInterruptResult;
+      attempt += 1
+    ) {
+      const waited = await client.callTool({
+        name: "agent_wait",
+        arguments: {
+          afterCursor: failedCancellationCursor,
+          timeoutMs: 5_000,
+        },
+      });
+      const output = waited.structuredContent as {
+        messages: Array<{ replyTo: string; status: string; text: string }>;
+        nextCursor: number;
+      };
+      failedCancellationCursor = output.nextCursor;
+      afterFailedInterruptResult = output.messages.find(
+        (message) => message.replyTo === afterFailedInterruptMessage.id,
+      );
+    }
+    assert.ok(afterFailedInterruptResult);
+    assert.equal(afterFailedInterruptResult.status, "completed");
+    assert.equal(
+      afterFailedInterruptResult.text,
+      "done: after failed cancellation",
+    );
+    assert.equal(
+      desktopResumes.findIndex(
+        (entry) => entry.prompt === "wait for failed cancellation",
+      ) <
+        desktopResumes.findIndex(
+          (entry) => entry.prompt === "after failed cancellation",
+        ),
+      true,
+    );
+    const failedTurnId = [...desktopPromptsByTurn].find(
+      ([, prompt]) => prompt === "wait for failed cancellation",
+    )?.[0];
+    const followingTurnId = [...desktopPromptsByTurn].find(
+      ([, prompt]) => prompt === "after failed cancellation",
+    )?.[0];
+    assert.ok(failedTurnId);
+    assert.ok(followingTurnId);
+    const failedCompletedAt = desktopCompletedAt.get(failedTurnId);
+    const followingStartedAt = desktopStartedAt.get(followingTurnId);
+    assert.ok(typeof failedCompletedAt === "number");
+    assert.ok(typeof followingStartedAt === "number");
+    assert.ok(followingStartedAt >= failedCompletedAt);
+    assert.equal(
+      store
+        .listMessages("windows")
+        .filter(
+          (message) =>
+            message.kind === "result" &&
+            message.replyTo === failedInterruptMessage.id,
+        ).length,
+      1,
+    );
+    assert.equal(store.countProgressUpdates(failedInterruptMessage.id), 0);
+
     const startupCancellation = await client.callTool({
       name: "agent_thread_send",
       arguments: {
@@ -646,7 +793,7 @@ describe("local vertical scenario", () => {
       },
     });
     const followingMessage = following.structuredContent as { id: string };
-    let cursor = cancellationOutput.nextCursor;
+    let cursor = failedCancellationCursor;
     let followingResult:
       | { replyTo: string; status: string; text: string }
       | undefined;
@@ -667,7 +814,7 @@ describe("local vertical scenario", () => {
     assert.ok(followingResult);
     assert.equal(followingResult.status, "completed");
     assert.equal(followingResult.text, "done: after startup cancellation");
-    assert.equal(desktopInterrupts.length, 2);
+    assert.equal(desktopInterrupts.length, 3);
     assert.equal(store.countOutstandingRequests("mac"), 0);
 
     await client.close();

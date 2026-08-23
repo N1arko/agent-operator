@@ -79,6 +79,7 @@ export type WorkerOptions = {
       threadId: string,
       turnId: string,
       onProgress?: TurnOptions["onProgress"],
+      signal?: AbortSignal,
     ): Promise<{ status: string; text: string }>;
     steer(handle: TurnHandle, message: string): Promise<boolean>;
     interrupt(handle: TurnHandle): Promise<void>;
@@ -92,6 +93,7 @@ export type WorkerOptions = {
       externalCompletion?: (
         threadId: string,
         turnId: string,
+        signal?: AbortSignal,
       ) => Promise<{ status: string; text: string }>,
     ): Promise<TurnHandle>;
     interrupt(handle: TurnHandle): Promise<void>;
@@ -124,6 +126,8 @@ export class Worker {
   private readonly publishingProgress = new Set<string>();
   private readonly lastProgressAt = new Map<string, number>();
   private readonly progressDeliveries = new Map<string, Set<Promise<void>>>();
+  private readonly localFinalizations = new Map<string, Promise<void>>();
+  private readonly locallyFinishedMessages = new Set<string>();
 
   constructor(private readonly options: WorkerOptions) {}
 
@@ -251,42 +255,32 @@ export class Worker {
       // before `active` exists. Do not let that accepted turn occupy the worker
       // after its coordinator request has already been settled.
       if (this.settledMessages.has(item.message.id)) {
+        let interrupted = false;
         try {
           if (this.options.desktopFollower && !canSteer) {
             await this.options.desktopFollower.interrupt(handle);
           } else {
             await this.options.appServer.interrupt(handle);
           }
+          interrupted = true;
         } catch (error) {
           console.error("[worker] cancelled startup interrupt failed", error);
         }
-        await this.releaseTemporaryFiles(item.message.id);
-        await this.removePending(item.message.id);
-        await this.sendHeartbeat();
+        if (interrupted) {
+          await handle.cancelObservation?.();
+          await this.finishSettled(item);
+        } else {
+          // @spec spec://modules/coordinator/FEAT-002-task-coordination#scenarios.cancel
+          // Desktop may already own the turn even though active registration
+          // has not completed. Preserve the slot until that turn reaches its
+          // real boundary instead of admitting the next queued request.
+          this.activate(item, handle, activity, canSteer, false);
+          await this.sendHeartbeat();
+        }
         return;
       }
-      this.active = {
-        item,
-        handle,
-        activity,
-        canSteer,
-        leaseTimer: this.armLease(item, handle),
-      };
+      this.activate(item, handle, activity, canSteer, true);
       await this.sendHeartbeat();
-      void handle.completed
-        .then((result) => {
-          if (this.settledMessages.has(item.message.id)) return;
-          return this.complete(item, result.status, result.text);
-        })
-        .catch((error: unknown) =>
-          this.settledMessages.has(item.message.id)
-            ? undefined
-            : this.complete(
-                item,
-                "failed",
-                error instanceof Error ? error.message : String(error),
-              ),
-        );
     } catch (error) {
       await this.complete(
         item,
@@ -295,8 +289,39 @@ export class Worker {
       );
     } finally {
       this.running = false;
-      if (!this.active) void this.runNext();
+      void this.runNext();
     }
+  }
+
+  private activate(
+    item: WorkItem,
+    handle: TurnHandle,
+    activity: string,
+    canSteer: boolean,
+    withLease: boolean,
+  ): void {
+    this.active = {
+      item,
+      handle,
+      activity,
+      canSteer,
+      leaseTimer: withLease ? this.armLease(item, handle) : undefined,
+    };
+    void handle.completed
+      .then((result) =>
+        this.settledMessages.has(item.message.id)
+          ? this.finishSettled(item)
+          : this.complete(item, result.status, result.text),
+      )
+      .catch((error: unknown) =>
+        this.settledMessages.has(item.message.id)
+          ? this.finishSettled(item)
+          : this.complete(
+              item,
+              "failed",
+              error instanceof Error ? error.message : String(error),
+            ),
+      );
   }
 
   private async startProjectThread(
@@ -326,11 +351,12 @@ export class Worker {
           threadId,
           prompt,
           turnOptions,
-          (acceptedThreadId, turnId) =>
+          (acceptedThreadId, turnId, signal) =>
             this.options.appServer.waitForTurn(
               acceptedThreadId,
               turnId,
               turnOptions.onProgress,
+              signal,
             ),
         );
         desktopAccepted = true;
@@ -391,11 +417,12 @@ export class Worker {
             binding.threadId,
             prompt,
             turnOptions,
-            (threadId, turnId) =>
+            (threadId, turnId, signal) =>
               this.options.appServer.waitForTurn(
                 threadId,
                 turnId,
                 turnOptions.onProgress,
+                signal,
               ),
           ),
           activity: `${project?.name ?? "Existing task"}: ${item.message.text.slice(0, 160)}`,
@@ -443,11 +470,12 @@ export class Worker {
           threadId,
           prompt,
           turnOptions,
-          (acceptedThreadId, turnId) =>
+          (acceptedThreadId, turnId, signal) =>
             this.options.appServer.waitForTurn(
               acceptedThreadId,
               turnId,
               turnOptions.onProgress,
+              signal,
             ),
         );
         desktopAccepted = true;
@@ -547,6 +575,15 @@ export class Worker {
     status: string,
     text: string,
   ): Promise<void> {
+    await this.deliverResult(item, status, text);
+    await this.finishSettled(item);
+  }
+
+  private async deliverResult(
+    item: WorkItem,
+    status: string,
+    text: string,
+  ): Promise<void> {
     const active = this.active;
     if (active?.item.message.id === item.message.id && active.leaseTimer) {
       clearTimeout(active.leaseTimer);
@@ -554,37 +591,56 @@ export class Worker {
     const binding = this.state.threads[item.message.rootMessageId];
     const requesterAgentId =
       binding?.requesterAgentId ?? item.message.fromAgentId;
-    try {
-      const progressDeliveries = this.progressDeliveries.get(item.message.id);
-      if (progressDeliveries?.size) {
-        await Promise.allSettled(progressDeliveries);
+    for (;;) {
+      try {
+        const progressDeliveries = this.progressDeliveries.get(item.message.id);
+        if (progressDeliveries?.size) {
+          await Promise.allSettled(progressDeliveries);
+        }
+        await this.options.client.publishResult({
+          rootMessageId: item.message.rootMessageId,
+          replyTo: item.message.id,
+          toAgentId: requesterAgentId,
+          threadId:
+            binding?.threadId ?? item.message.targetThreadId ?? null,
+          text,
+          attachments: [],
+          failed: status === "failed",
+          cancelled: status === "cancelled",
+        });
+        return;
+      } catch (error) {
+        console.error("[worker] result delivery failed; retrying", error);
+        await new Promise((resolve) => setTimeout(resolve, 2_000));
       }
-      await this.options.client.publishResult({
-        rootMessageId: item.message.rootMessageId,
-        replyTo: item.message.id,
-        toAgentId: requesterAgentId,
-        threadId:
-          binding?.threadId ?? item.message.targetThreadId ?? null,
-        text,
-        attachments: [],
-        failed: status === "failed",
-        cancelled: status === "cancelled",
-      });
-    } catch (error) {
-      console.error("[worker] result delivery failed; retrying", error);
-      setTimeout(
-        () => void this.complete(item, status, text),
-        2_000,
-      );
-      return;
     }
-    await this.releaseTemporaryFiles(item.message.id);
-    this.progressDeliveries.delete(item.message.id);
-    await this.removePending(item.message.id);
-    if (this.active?.item.message.id === item.message.id) this.active = undefined;
-    this.settledMessages.add(item.message.id);
-    await this.sendHeartbeat();
-    void this.runNext();
+  }
+
+  private finishSettled(item: WorkItem): Promise<void> {
+    const messageId = item.message.id;
+    if (this.locallyFinishedMessages.has(messageId)) return Promise.resolve();
+    const existing = this.localFinalizations.get(messageId);
+    if (existing) return existing;
+    const finalization = (async (): Promise<void> => {
+      const active = this.active;
+      if (active?.item.message.id === messageId && active.leaseTimer) {
+        clearTimeout(active.leaseTimer);
+      }
+      await this.releaseTemporaryFiles(messageId);
+      this.progressDeliveries.delete(messageId);
+      await this.removePending(messageId);
+      if (this.active?.item.message.id === messageId) this.active = undefined;
+      this.settledMessages.add(messageId);
+      this.locallyFinishedMessages.add(messageId);
+      await this.sendHeartbeat();
+      void this.runNext();
+    })();
+    this.localFinalizations.set(messageId, finalization);
+    void finalization.then(
+      () => this.localFinalizations.delete(messageId),
+      () => this.localFinalizations.delete(messageId),
+    );
+    return finalization;
   }
 
   private async receiveCancellation(message: Message): Promise<void> {
@@ -592,24 +648,33 @@ export class Worker {
     const targetId = message.replyTo;
     if (!targetId) return;
     this.settledMessages.add(targetId);
+    const wasQueued = this.queue.some((item) => item.message.id === targetId);
     this.queue = this.queue.filter((item) => item.message.id !== targetId);
-    await this.removePending(targetId);
+    if (wasQueued) await this.removePending(targetId);
     const active = this.active;
     if (active?.item.message.id === targetId) {
       if (active.leaseTimer) clearTimeout(active.leaseTimer);
+      let interrupted = false;
       try {
         if (this.options.desktopFollower && !active.canSteer) {
           await this.options.desktopFollower.interrupt(active.handle);
         } else {
           await this.options.appServer.interrupt(active.handle);
         }
+        interrupted = true;
       } catch (error) {
         console.error("[worker] task interrupt failed", error);
       }
-      await this.releaseTemporaryFiles(targetId);
-      this.active = undefined;
-      await this.sendHeartbeat();
-      void this.runNext();
+      if (interrupted) {
+        await active.handle.cancelObservation?.();
+        await this.finishSettled(active.item);
+      } else {
+        // @spec spec://modules/coordinator/FEAT-002-task-coordination#scenarios.cancel
+        // A timed-out interrupt does not prove that Desktop stopped. Keep the
+        // active slot and its files until the original completion observer
+        // reaches a real turn boundary.
+        await this.sendHeartbeat();
+      }
     }
   }
 
@@ -629,20 +694,28 @@ export class Worker {
   ): Promise<void> {
     if (this.active?.item.message.id !== item.message.id) return;
     this.settledMessages.add(item.message.id);
+    let interrupted = false;
     try {
       if (this.options.desktopFollower && !this.active.canSteer) {
         await this.options.desktopFollower.interrupt(handle);
       } else {
         await this.options.appServer.interrupt(handle);
       }
+      interrupted = true;
     } catch (error) {
       console.error("[worker] lease interrupt failed", error);
     }
-    await this.complete(
+    await this.deliverResult(
       item,
       "failed",
       `Request lease expired at ${item.message.leaseExpiresAt}`,
     );
+    if (interrupted) {
+      await handle.cancelObservation?.();
+      await this.finishSettled(item);
+    } else {
+      await this.sendHeartbeat();
+    }
   }
 
   private turnOptions(message: Message): TurnOptions {
@@ -676,6 +749,7 @@ export class Worker {
       plan: ProgressUpdate["plan"];
     },
   ): Promise<void> {
+    if (this.settledMessages.has(message.id)) return;
     const key = `${message.id}:${update.turnId}:${update.itemId}:${update.revision}`;
     const throttleKey = `${message.id}:${update.phase}`;
     const now = Date.now();
@@ -878,7 +952,7 @@ export class Worker {
         null,
       currentActivity: this.active?.activity ?? null,
       projects: descriptors,
-      workerVersion: "0.1.22",
+      workerVersion: "0.1.23",
     });
   }
 }
