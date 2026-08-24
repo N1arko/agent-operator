@@ -74,9 +74,19 @@
 - Исправление `2ee7193` передаёт и сохраняет exact Codex home, фиксирует
   service ownership для NoService-профиля и покрывает оба случая regression
   tests. Локально прошли typecheck, lint, spec/docs checks и 68/68 tests.
-- Далее: принять fix в main → заменить unpublished final tag/draft/GHCR на
-  новый exact artifact set → повторить fresh clean-room matrix → public-safe
-  evidence → publish workflow → anonymous Quick Start audit.
+- Fix принят в `main` revision
+  `868839154632e9968aee70f99adb4aa811f7002f`; exact main CI
+  `32678428361` и Security `32678428324` прошли. Пересозданный tag workflow
+  `32678565769` выявил runner-level ARM64 blocker: QEMU завершался с
+  `Illegal instruction` во время `pnpm install` и оставлял BuildKit job
+  зависшим до отмены.
+- Docker build stage переведён на native `BUILDPLATFORM`; coordinator runtime
+  не содержит native Node addons. Локально на `linux/arm64` успешно собраны и
+  запущены native arm64 и cross-built amd64 images; typecheck, lint/docs/spec
+  checks и 68/68 tests прошли.
+- Далее: принять multi-arch build fix в main → снова заменить unpublished
+  final tag/draft/GHCR exact artifact set → повторить fresh clean-room matrix →
+  public-safe evidence → publish workflow → anonymous Quick Start audit.
 
 ## Cross-work
 
