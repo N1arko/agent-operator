@@ -48,6 +48,7 @@ describe("self-hosted coordinator distribution", () => {
     const compose = readFileSync(deploymentPath("compose.yaml"), "utf8");
     const tls = readFileSync(deploymentPath("compose.tls.yaml"), "utf8");
     assert.match(dockerfile, /node:24\.19\.0-alpine3\.24@sha256:[a-f0-9]{64}/);
+    assert.match(dockerfile, /FROM --platform=\$\{BUILDPLATFORM\} \$\{NODE_IMAGE\} AS build/);
     assert.match(tls, /caddy:2\.11\.4-alpine@sha256:[a-f0-9]{64}/);
     assert.match(dockerfile, /USER node/);
     assert.match(dockerfile, /\/usr\/local\/lib\/node_modules\/npm/);
