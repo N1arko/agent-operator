@@ -53,10 +53,21 @@
   отсутствие private deployment references в текущей публичной документации.
   Исторические deployment references классифицированы WI-004;
   `historyRewriteRequired=false`. Exact tag workflow повторит history scan.
-- Далее: final exact CI после WAL/audit update → удалить private rehearsal
-  draft/tag → public visibility →
-  annotated final tag → signed draft → full exact clean-room → evidence →
-  publish workflow → anonymous clone/pull/download.
+- Final source/tag `v0.2.0-alpha` закреплён на
+  `4bc845d6b7b1e0c203427806d43a605f116cc7c7`; exact main CI и Security прошли.
+  Repository открыт, anonymous clone подтверждён. Signed draft release прошёл
+  checksums, SBOM, provenance, Trivy и multi-arch image gates.
+- GHCR package всё ещё private. GitHub dialog подготовлен к смене visibility;
+  финальное permission-changing действие ждёт явного подтверждения человека.
+- Exact Windows ZIP с SHA256
+  `87cda9926345d608b6f0dd1bd06757432633e70b6215b3f979ca644f955c7227`
+  передан старому isolated worker, сохранён отдельно и проверен по manifest:
+  version `0.2.0-alpha`, platform `windows`, revision `4bc845d6...`; установка
+  не выполнялась. Fresh VPS root и fresh macOS package подготовлены без
+  переключения coordinator или изменения production.
+- Далее: подтвердить public GHCR visibility → anonymous exact-digest pull →
+  fresh exact coordinator и macOS/Windows workers → полный clean-room matrix →
+  public-safe evidence → publish workflow → anonymous Quick Start audit.
 
 ## Cross-work
 
