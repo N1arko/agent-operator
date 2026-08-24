@@ -53,10 +53,30 @@
   отсутствие private deployment references в текущей публичной документации.
   Исторические deployment references классифицированы WI-004;
   `historyRewriteRequired=false`. Exact tag workflow повторит history scan.
-- Далее: final exact CI после WAL/audit update → удалить private rehearsal
-  draft/tag → public visibility →
-  annotated final tag → signed draft → full exact clean-room → evidence →
-  publish workflow → anonymous clone/pull/download.
+- Final source/tag `v0.2.0-alpha` закреплён на
+  `4bc845d6b7b1e0c203427806d43a605f116cc7c7`; exact main CI и Security прошли.
+  Repository открыт, anonymous clone подтверждён. Signed draft release прошёл
+  checksums, SBOM, provenance, Trivy и multi-arch image gates.
+- GHCR package открыт после явного подтверждения человека; anonymous manifest
+  exact digest `sha256:57e8fc51...` подтвердил `linux/amd64` и `linux/arm64`.
+- Exact Windows ZIP с SHA256
+  `87cda9926345d608b6f0dd1bd06757432633e70b6215b3f979ca644f955c7227`
+  передан старому isolated worker, сохранён отдельно и проверен по manifest:
+  version `0.2.0-alpha`, platform `windows`, revision `4bc845d6...`; установка
+  не выполнялась. Fresh coordinator, macOS worker и Windows worker затем
+  подняты из exact artifacts `4bc845d6...`; enrollment, doctor, heartbeat,
+  isolated MCP/skill integration и Codex `0.149.0` подтверждены.
+- Windows clean-room выявил два release-blocker: custom `CodexHome` не попадал
+  в environment Codex subprocess, а `NoService` update/rollback/uninstall мог
+  затронуть глобальную Scheduled Task. Production Windows task был точечно
+  перезапущен через сохранённый isolated worker, heartbeat восстановлен; config
+  и данные production не менялись.
+- Исправление `2ee7193` передаёт и сохраняет exact Codex home, фиксирует
+  service ownership для NoService-профиля и покрывает оба случая regression
+  tests. Локально прошли typecheck, lint, spec/docs checks и 68/68 tests.
+- Далее: принять fix в main → заменить unpublished final tag/draft/GHCR на
+  новый exact artifact set → повторить fresh clean-room matrix → public-safe
+  evidence → publish workflow → anonymous Quick Start audit.
 
 ## Cross-work
 

@@ -15,6 +15,8 @@ const servers: Server[] = [];
 const stores: CoordinatorStore[] = [];
 
 type InstalledState = { version: string; previousVersion: string | null };
+type IntegrationReceipt = { codexHome: string };
+type WorkerConfig = { serviceEnabled?: boolean };
 const installedState = async (path: string): Promise<InstalledState> =>
   JSON.parse(await readFile(path, "utf8")) as InstalledState;
 
@@ -89,7 +91,15 @@ describe("worker release packages", () => {
     const coordinatorUrl = `http://127.0.0.1:${address.port}`;
 
     const fakeCodex = join(temporary, "codex");
-    await writeFile(fakeCodex, "#!/bin/sh\necho 'codex-cli package-test'\n", { mode: 0o700 });
+    const fakeCodexHomeLog = join(temporary, "codex-home.log");
+    await writeFile(fakeCodex, `#!/bin/sh
+if [ "$1" = "mcp" ]; then
+  printf '%s\\n' "\${CODEX_HOME-}" >> "$AOP_FAKE_CODEX_HOME_LOG"
+  if [ "$2" = "get" ]; then exit 1; fi
+  exit 0
+fi
+echo 'codex-cli package-test'
+`, { mode: 0o700 });
     await chmod(fakeCodex, 0o700);
     const project = join(temporary, "user-project");
     await mkdir(project);
@@ -98,14 +108,18 @@ describe("worker release packages", () => {
     const testEnv = { AOP_TEST_MODE: "1", AOP_SERVICE_MODE: "skip", AOP_PLATFORM_OVERRIDE: "macos" };
     const serviceSmoke = process.env.AOP_OS_SERVICE_SMOKE === "1" && process.platform === "darwin";
     const macEnv = serviceSmoke ? { AOP_TEST_MODE: "1" } : testEnv;
+    const macCommandEnv = { ...macEnv, AOP_FAKE_CODEX_HOME_LOG: fakeCodexHomeLog };
     const macServiceArguments = serviceSmoke ? [] : ["--no-service"];
+    const macCodexHome = join(temporary, "mac-codex-home");
 
-    await run(join(macPackage, "bin", "macos", "install.sh"), ["--install-root", macRoot, "--coordinator-url", coordinatorUrl, "--enrollment-code", macEnrollment.code, "--project", project, "--codex-bin", fakeCodex, ...macServiceArguments, "--no-integration"], macEnv);
+    await run(join(macPackage, "bin", "macos", "install.sh"), ["--install-root", macRoot, "--coordinator-url", coordinatorUrl, "--enrollment-code", macEnrollment.code, "--project", project, "--codex-bin", fakeCodex, "--codex-home", macCodexHome, ...macServiceArguments], macCommandEnv);
     assert.equal(store.getAgent("package-mac")?.name, "Package Mac");
     if (serviceSmoke) {
       await run("launchctl", ["print", `gui/${process.getuid?.()}/org.agent-operator.worker`]);
       await run("launchctl", ["bootout", `gui/${process.getuid?.()}`, join(homedir(), "Library", "LaunchAgents", "org.agent-operator.worker.plist")]);
     }
+    assert.ok((await readFile(fakeCodexHomeLog, "utf8")).trim().split("\n").every((value) => value === macCodexHome));
+    assert.equal((JSON.parse(await readFile(join(macRoot, "config", "integration.json"), "utf8")) as IntegrationReceipt).codexHome, macCodexHome);
     assert.equal((await stat(join(macRoot, "config", "worker.json"))).mode & 0o777, 0o600);
     await writeFile(join(macRoot, "data", "worker-state.json"), "{\"cursor\":7}\n");
     const previousVersion = "0.1.22-test";
@@ -113,10 +127,13 @@ describe("worker release packages", () => {
     await writeFile(join(macRoot, "config", "current.json"), `${JSON.stringify({ version: releaseVersion, previousVersion })}\n`);
     await run("node", [join(macRoot, "bin", "workerctl.mjs"), "rollback", "--install-root", macRoot, "--no-service"], testEnv);
     assert.equal((await installedState(join(macRoot, "config", "current.json"))).version, previousVersion);
-    await run("node", [join(macPackage, "bin", "workerctl.mjs"), "update", "--package-root", macPackage, "--install-root", macRoot, "--no-service", "--no-integration"], testEnv);
+    await run("node", [join(macPackage, "bin", "workerctl.mjs"), "update", "--package-root", macPackage, "--install-root", macRoot, "--no-service"], { ...testEnv, AOP_FAKE_CODEX_HOME_LOG: fakeCodexHomeLog });
     const updated = await installedState(join(macRoot, "config", "current.json"));
     assert.deepEqual([updated.version, updated.previousVersion], [releaseVersion, previousVersion]);
+    assert.ok((await readFile(fakeCodexHomeLog, "utf8")).trim().split("\n").every((value) => value === macCodexHome));
     assert.equal(await readFile(join(macRoot, "data", "worker-state.json"), "utf8"), "{\"cursor\":7}\n");
+    await run("node", [join(macPackage, "bin", "workerctl.mjs"), "uninstall", "--install-root", macRoot, "--scope", "integration"], { ...testEnv, AOP_FAKE_CODEX_HOME_LOG: fakeCodexHomeLog });
+    assert.ok((await readFile(fakeCodexHomeLog, "utf8")).trim().split("\n").every((value) => value === macCodexHome));
     await run("node", [join(macPackage, "bin", "workerctl.mjs"), "uninstall", "--install-root", macRoot, "--scope", "runtime"], testEnv);
     assert.equal(await readFile(join(project, "user-file.txt"), "utf8"), "keep\n");
     assert.equal(await readFile(join(macRoot, "data", "worker-state.json"), "utf8"), "{\"cursor\":7}\n");
@@ -125,7 +142,25 @@ describe("worker release packages", () => {
     await run("pwsh", ["-NoLogo", "-NoProfile", "-File", join(windowsPackage, "bin", "windows", "install-worker.ps1"), "-CoordinatorUrl", coordinatorUrl, "-EnrollmentCode", windowsEnrollment.code, "-Project", project, "-InstallRoot", windowsRoot, "-CodexBin", fakeCodex, "-NoService", "-NoIntegration"], { ...testEnv, AOP_PLATFORM_OVERRIDE: "windows" });
     assert.equal(store.getAgent("package-windows")?.name, "Package Windows");
     assert.equal((await installedState(join(windowsRoot, "config", "current.json"))).version, releaseVersion);
-    await run("node", [join(windowsPackage, "bin", "workerctl.mjs"), "uninstall", "--install-root", windowsRoot, "--scope", "all", "--delete-config", "--delete-state"], { ...testEnv, AOP_PLATFORM_OVERRIDE: "windows" });
+    assert.equal((JSON.parse(await readFile(join(windowsRoot, "config", "worker.json"), "utf8")) as WorkerConfig).serviceEnabled, false);
+    const windowsPreviousVersion = "0.1.22-windows-test";
+    await cp(join(windowsRoot, "versions", releaseVersion), join(windowsRoot, "versions", windowsPreviousVersion), { recursive: true });
+    await writeFile(join(windowsRoot, "config", "current.json"), `${JSON.stringify({ version: releaseVersion, previousVersion: windowsPreviousVersion })}\n`);
+    const fakeServiceBin = join(temporary, "fake-service-bin");
+    const fakeTaskLog = join(temporary, "schtasks.log");
+    await mkdir(fakeServiceBin);
+    await writeFile(join(fakeServiceBin, "schtasks.exe"), "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$AOP_TASK_LOG\"\n", { mode: 0o700 });
+    await chmod(join(fakeServiceBin, "schtasks.exe"), 0o700);
+    const windowsNoServiceEnv = {
+      AOP_TEST_MODE: "1",
+      AOP_PLATFORM_OVERRIDE: "windows",
+      AOP_TASK_LOG: fakeTaskLog,
+      PATH: `${fakeServiceBin}:${process.env.PATH ?? ""}`,
+    };
+    await run("node", [join(windowsRoot, "bin", "workerctl.mjs"), "rollback", "--install-root", windowsRoot], windowsNoServiceEnv);
+    await run("node", [join(windowsPackage, "bin", "workerctl.mjs"), "update", "--package-root", windowsPackage, "--install-root", windowsRoot, "--no-integration"], windowsNoServiceEnv);
+    await run("node", [join(windowsPackage, "bin", "workerctl.mjs"), "uninstall", "--install-root", windowsRoot, "--scope", "all", "--delete-config", "--delete-state"], windowsNoServiceEnv);
+    assert.equal(await readFile(fakeTaskLog, "utf8").catch(() => ""), "", "NoService lifecycle must not touch the global Scheduled Task");
     assert.equal(await readFile(join(project, "user-file.txt"), "utf8"), "keep\n");
 
     const fakeComSpec = join(temporary, "cmd.exe");
