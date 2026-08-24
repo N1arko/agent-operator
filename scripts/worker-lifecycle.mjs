@@ -217,6 +217,13 @@ const deleteService = async (platform) => {
 
 const codexHome = (args) => resolve(option(args, "codex-home", process.env.CODEX_HOME ?? join(homedir(), ".codex")));
 
+const environmentWithCodexHome = (home) => ({
+  ...Object.fromEntries(
+    Object.entries(process.env).filter(([key]) => key.toUpperCase() !== "CODEX_HOME"),
+  ),
+  CODEX_HOME: home,
+});
+
 const replaceTokenLine = async (path, token) => {
   const original = (await exists(path)) ? await readFile(path, "utf8") : "";
   const lines = original.split(/\r?\n/).filter((line) => line && !/^\s*(?:export\s+)?AOP_DEVICE_TOKEN=/.test(line));
@@ -230,12 +237,20 @@ const replaceTokenLine = async (path, token) => {
 const configureIntegration = async (paths, packageRoot, args) => {
   if (flag(args, "no-integration")) return;
   const config = await readJson(paths.workerConfig);
-  const home = codexHome(args);
+  const receipt = (await exists(paths.integrationReceipt)) ? await readJson(paths.integrationReceipt) : null;
+  const requestedHome = option(args, "codex-home");
+  const home = requestedHome ? resolve(requestedHome) : receipt?.codexHome ?? codexHome(args);
+  if (receipt?.codexHome && requestedHome && resolve(receipt.codexHome) !== home) {
+    fail("Codex home cannot change during update; uninstall integration first");
+  }
   const envPath = join(home, ".env");
   const skillTarget = join(home, "skills", "coordinate-agents");
-  const receipt = (await exists(paths.integrationReceipt)) ? await readJson(paths.integrationReceipt) : null;
   const codex = config.codexBin;
-  const existingMcp = spawnSync(codex, [...(config.codexArgs ?? []), "mcp", "get", "agent-operator"], { stdio: "ignore" }).status === 0;
+  const codexEnvironment = environmentWithCodexHome(home);
+  const existingMcp = spawnSync(codex, [...(config.codexArgs ?? []), "mcp", "get", "agent-operator"], {
+    env: codexEnvironment,
+    stdio: "ignore",
+  }).status === 0;
   if (existingMcp && !receipt) fail("Codex MCP agent-operator already exists; remove it explicitly before install");
   const skillBackup = join(paths.backups, "coordinate-agents.before-install");
   if (!receipt && await exists(skillTarget)) {
@@ -245,8 +260,16 @@ const configureIntegration = async (paths, packageRoot, args) => {
   const previousTokenLine = receipt?.previousTokenLine ?? await replaceTokenLine(envPath, config.deviceToken);
   if (receipt) await replaceTokenLine(envPath, config.deviceToken);
   secureWindowsFile(envPath);
-  if (existingMcp) spawnSync(codex, [...(config.codexArgs ?? []), "mcp", "remove", "agent-operator"], { stdio: "ignore" });
-  const added = spawnSync(codex, [...(config.codexArgs ?? []), "mcp", "add", "agent-operator", "--url", `${config.coordinatorUrl.replace(/\/$/, "")}/mcp`, "--bearer-token-env-var", "AOP_DEVICE_TOKEN"], { encoding: "utf8" });
+  if (existingMcp) {
+    spawnSync(codex, [...(config.codexArgs ?? []), "mcp", "remove", "agent-operator"], {
+      env: codexEnvironment,
+      stdio: "ignore",
+    });
+  }
+  const added = spawnSync(codex, [...(config.codexArgs ?? []), "mcp", "add", "agent-operator", "--url", `${config.coordinatorUrl.replace(/\/$/, "")}/mcp`, "--bearer-token-env-var", "AOP_DEVICE_TOKEN"], {
+    encoding: "utf8",
+    env: codexEnvironment,
+  });
   if (added.status !== 0) fail(added.stderr || "Unable to configure Agent Operator MCP");
   await rm(skillTarget, { recursive: true, force: true });
   await mkdir(dirname(skillTarget), { recursive: true });
@@ -258,7 +281,11 @@ const removeIntegration = async (paths) => {
   if (!(await exists(paths.integrationReceipt))) return;
   const receipt = await readJson(paths.integrationReceipt);
   const config = await readJson(paths.workerConfig);
-  spawnSync(config.codexBin, [...(config.codexArgs ?? []), "mcp", "remove", "agent-operator"], { stdio: "ignore" });
+  const home = resolve(receipt.codexHome ?? dirname(receipt.envPath));
+  spawnSync(config.codexBin, [...(config.codexArgs ?? []), "mcp", "remove", "agent-operator"], {
+    env: environmentWithCodexHome(home),
+    stdio: "ignore",
+  });
   await rm(receipt.skillTarget, { recursive: true, force: true });
   if (receipt.skillBackup && await exists(receipt.skillBackup)) await cp(receipt.skillBackup, receipt.skillTarget, { recursive: true });
   if (await exists(receipt.envPath)) {
@@ -345,7 +372,7 @@ const installCommand = async (args, platform, paths) => {
   await Promise.all([paths.config, paths.data, paths.backups].map((path) => mkdir(path, { recursive: true, mode: 0o700 })));
   await installVersion(paths, packageRoot, manifest);
   await writeJson(paths.projects, projects);
-  await writeJson(paths.workerConfig, { ...grant, ...codex });
+  await writeJson(paths.workerConfig, { ...grant, ...codex, serviceEnabled: !flag(args, "no-service") });
   await writeJson(paths.current, { version: manifest.version, previousVersion: null, installedAt: new Date().toISOString() });
   await securePrivateStorage(platform, paths);
   await configureIntegration(paths, packageRoot, args);
@@ -358,25 +385,29 @@ const updateCommand = async (args, platform, paths) => {
   const packageRoot = resolve(option(args, "package-root", PACKAGE_ROOT));
   const manifest = await packageManifest(packageRoot, platform);
   const state = await currentState(paths);
+  const config = await readJson(paths.workerConfig);
+  const manageService = config.serviceEnabled !== false && !flag(args, "no-service");
   await installVersion(paths, packageRoot, manifest);
   await runWorker(paths, manifest.version, true);
-  stopService(platform, paths);
+  if (manageService) stopService(platform, paths);
   await writeJson(paths.current, { version: manifest.version, previousVersion: state.version === manifest.version ? state.previousVersion : state.version, installedAt: new Date().toISOString() });
   await securePrivateStorage(platform, paths);
   await configureIntegration(paths, packageRoot, args);
-  if (!flag(args, "no-service")) await installService(platform, paths);
+  if (manageService) await installService(platform, paths);
   console.log(`Agent Operator worker updated from ${state.version} to ${manifest.version}.`);
 };
 
 const rollbackCommand = async (args, platform, paths) => {
   const state = await currentState(paths);
+  const config = await readJson(paths.workerConfig);
+  const manageService = config.serviceEnabled !== false && !flag(args, "no-service");
   if (!state.previousVersion) fail("No previous version is available");
   if (!(await exists(runtimeEntry(paths, state.previousVersion)))) fail(`Previous version is missing: ${state.previousVersion}`);
   await runWorker(paths, state.previousVersion, true);
-  stopService(platform, paths);
+  if (manageService) stopService(platform, paths);
   await writeJson(paths.current, { version: state.previousVersion, previousVersion: state.version, installedAt: new Date().toISOString() });
   await securePrivateStorage(platform, paths);
-  if (!flag(args, "no-service")) await installService(platform, paths);
+  if (manageService) await installService(platform, paths);
   console.log(`Agent Operator worker rolled back to ${state.previousVersion}.`);
 };
 
@@ -386,7 +417,8 @@ const uninstallCommand = async (args, platform, paths) => {
   if (flag(args, "delete-config") && scope !== "all") fail("--delete-config requires --scope all so integration can be removed safely");
   if (scope === "integration" || scope === "all") await removeIntegration(paths);
   if (scope === "runtime" || scope === "all") {
-    await deleteService(platform);
+    const config = (await exists(paths.workerConfig)) ? await readJson(paths.workerConfig) : null;
+    if (config?.serviceEnabled !== false) await deleteService(platform);
     await rm(paths.bin, { recursive: true, force: true });
     await rm(paths.versions, { recursive: true, force: true });
     if (flag(args, "delete-config")) await rm(paths.config, { recursive: true, force: true });
