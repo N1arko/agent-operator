@@ -23,6 +23,7 @@
 
 | Work | Specs | Title | Owner | Date |
 |---|---|---|---|---|
+| [WI-012](work/archive/2026/WI-012-production-dependencies.md) | INFRA-004, PROP-007, PROP-006, FEAT-007 | Закрыть advisories production-зависимостей | @codex-mac | 2026-10-13 |
 | [WI-009](work/archive/2026/WI-009-public-documentation.md) | PROP-007, INFRA-004 | Публичная документация | @codex-mac | 2026-08-23 |
 | [WI-008](work/archive/2026/WI-008-release-pipeline.md) | INFRA-004 | CI и release pipeline | @codex-mac | 2026-08-23 |
 | [WI-007](work/archive/2026/WI-007-worker-lifecycle.md) | INFRA-003, INFRA-004 | Lifecycle worker packages | @codex-mac | 2026-08-23 |

@@ -465,6 +465,8 @@ export const createCoordinatorApp = (
     });
   });
 
+  // @spec spec://common/PROP-006-API#errors
+  // @spec spec://modules/coordinator/FEAT-007-device-enrollment#acceptance
   app.use(
     (
       error: unknown,
@@ -472,6 +474,20 @@ export const createCoordinatorApp = (
       response: Response,
       next: NextFunction,
     ) => {
+      if (
+        typeof error === "object" &&
+        error !== null &&
+        "type" in error &&
+        error.type === "entity.parse.failed"
+      ) {
+        response.status(400).json({
+          error:
+            request.path === "/v1/enrollment/consume"
+              ? "enrollment_denied"
+              : "invalid_json",
+        });
+        return;
+      }
       if (
         typeof error === "object" &&
         error !== null &&
