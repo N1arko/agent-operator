@@ -32,8 +32,8 @@ Production dependency graph проходит актуальный audit без �
 - [x] Доступные локальные artifacts проверены на состав и checksum; границы container validation явно указаны.
 - [x] Bounded runtime smoke проверяет некорректный вход, обрыв соединения, восстановление и секреты в ответах.
 
-- [ ] Рабочая ветка опубликована без изменения чужого checkout; remote SHA подтверждён.
-- [ ] Draft PR создан; CI exact revision завершён и результат зафиксирован.
+- [x] Рабочая ветка опубликована без изменения чужого checkout; remote SHA подтверждён.
+- [x] Draft PR создан; CI exact revision завершён и результат зафиксирован.
 
 ## Result
 
@@ -67,7 +67,7 @@ SDK upgrade notes проверены по [официальному release 1.31
 
 Первый запуск тестов в ограниченном sandbox получил `listen EPERM` на loopback; повторный разрешённый запуск полного набора прошёл. Системные сетевые настройки не менялись.
 
-Изменения выполнены в отдельной локальной ветке `codex/wi-012-production-dependencies`. Исходный checkout и его незакоммиченная Desktop/worker работа сохранены. Push, PR и deploy не выполнялись. Production deployment и published artifacts сохраняют прежние зависимости до отдельного rollout; локальный source graph, доступные archives и production-only staged runtime проверены. Новые TECHDEBT не появились.
+Изменения выполнены в отдельной локальной ветке `codex/wi-012-production-dependencies`. Исходный checkout и его незакоммиченная Desktop/worker работа сохранены. На локальном этапе push, PR и deploy не выполнялись; разрешённая публикация ветки подтверждена ниже. Production deployment и published artifacts сохраняют прежние зависимости до отдельного rollout; локальный source graph, доступные archives и production-only staged runtime проверены. Новые TECHDEBT не появились.
 
 
 ### Дополнительная проверка artifacts и runtime
@@ -82,4 +82,16 @@ SDK upgrade notes проверены по [официальному release 1.31
 
 Ограничение: Docker CLI доступен, daemon sockets обоих локальных contexts отсутствуют. Coordinator container image здесь не собран, его base OS image scan и Linux image smoke не подтверждены. Daemon и services не запускались; сетевые настройки сохранены. Локальные archives построены из dirty checkout и содержат base revision в manifest; они служат verification evidence. После принятия patch нужно создать source commit и заново собрать exact release artifact set с этой revision.
 
-Утром можно переносить source diff, archived WI и BOARD row. Последующий container build/scan при доступном Docker, Windows live acceptance по WI-011 и exact CI/release artifact rebuild ещё необходимы перед release. Push и draft PR разрешены отдельным поручением пользователя 2026-10-13. Merge, publication и production deployment остаются за границами текущего прохода; migration/rollout/replacement действующего runtime выполняются отдельно. В каноническом Backlog нет зарегистрированных WI; активные WI-010/WI-011 не начинались и не изменялись.
+Source diff принят в отдельной рабочей ветке и опубликован как draft PR. Последующий container build/scan при доступном Docker, Windows live acceptance по WI-011 и exact release artifact rebuild ещё необходимы перед release. Push и draft PR разрешены отдельным поручением пользователя 2026-10-13. Merge, publication и production deployment остаются за границами текущего прохода; migration/rollout/replacement действующего runtime выполняются отдельно. В каноническом Backlog нет зарегистрированных WI; активные WI-010/WI-011 не начинались и не изменялись.
+
+
+### Публикация рабочей ветки и CI
+
+- Разрешённый push выполнен в `origin/codex/wi-012-production-dependencies`; `git ls-remote` подтвердил commit [`21ae55216ebfac9d4ef7aabd5ba0e649837d4a2f`](https://github.com/N1arko/agent-operator/commit/21ae55216ebfac9d4ef7aabd5ba0e649837d4a2f).
+- Создан [draft PR #25](https://github.com/N1arko/agent-operator/pull/25) в `main`. Merge и deployment не выполнялись.
+- [CI run 38395194861](https://github.com/N1arko/agent-operator/actions/runs/38395194861) относится к exact head SHA `21ae55216ebfac9d4ef7aabd5ba0e649837d4a2f` и завершён `success`: quality/typecheck/lint/tests, worker artifacts и OS service smoke на macOS/Windows.
+- [Security baseline run 38395193777](https://github.com/N1arko/agent-operator/actions/runs/38395193777) для того же SHA завершён `success`: production dependency audit/license inventory и полная Git history secret scan.
+- Runner-level Windows package service lifecycle подтверждён штатным CI с тестовым Codex. Проверка пользовательского Windows Desktop, account integration и текущего live runtime сохраняется в WI-011.
+- Повторный локальный pre-push audit сохранил 0 advisories. Docker daemon в обоих доступных contexts по-прежнему недоступен; coordinator image build и base OS scan не подтверждены. Release workflow с image publication не запускался.
+- Исходный checkout, tracked diff и незакоммиченный WI-011 проверены checksum и сохранены. В commit вошли только dependency manifests/lockfile, JSON parser fix, regression и учёт WI-012; generated artifacts, частные evidence, credentials и локальные пути исключены.
+- Закрытие WI отражено отдельным documentation-only commit; окончательная revision ветки повторно проходит PR checks. Итоговые head SHA и статусы доступны в PR #25.
