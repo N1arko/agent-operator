@@ -27,6 +27,44 @@ afterEach(async () => {
 });
 
 describe("Coordinator HTTP", () => {
+  // @spec spec://common/PROP-006-API#errors
+  // @spec spec://modules/coordinator/FEAT-007-device-enrollment#acceptance
+  it("rejects malformed JSON without exposing request secrets in errors or logs", async (context) => {
+    const store = new CoordinatorStore(":memory:");
+    stores.push(store);
+    const app = createCoordinatorApp(store, { host: "127.0.0.1" });
+    const server = app.listen(0, "127.0.0.1");
+    servers.push(server);
+    await new Promise<void>((resolve) => server.once("listening", resolve));
+    const address = server.address();
+    assert.ok(address && typeof address !== "string");
+    const canary = "test-secret";
+    const diagnostics: string[] = [];
+    context.mock.method(console, "error", (...values: unknown[]) => {
+      diagnostics.push(values.map(String).join(" "));
+    });
+
+    for (const [path, body, error] of [
+      ["/mcp", canary, "invalid_json"],
+      ["/v1/worker/heartbeat", `{"token":"${canary}"`, "invalid_json"],
+      ["/v1/enrollment/consume", canary, "enrollment_denied"],
+    ]) {
+      const response = await fetch(`http://127.0.0.1:${address.port}${path}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body,
+        signal: AbortSignal.timeout(2_000),
+      });
+      assert.equal(response.status, 400);
+      const text = await response.text();
+      assert.equal(text.includes(canary), false);
+      assert.deepEqual(JSON.parse(text), { error });
+    }
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(diagnostics.some((value) => value.includes(canary)), false);
+    assert.equal((await fetch(`http://127.0.0.1:${address.port}/health`)).status, 200);
+  });
+
   // @spec spec://modules/coordinator/FEAT-007-device-enrollment#contracts.enroll
   it("gives one credential to concurrent enrollment consumers and enforces revoke", async () => {
     const store = new CoordinatorStore(":memory:");

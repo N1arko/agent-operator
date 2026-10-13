@@ -12,6 +12,7 @@
 
 | Work | Title | Specs | Owner | Started | Blocker |
 |---|---|---|---|---|---|
+| [WI-012](work/WI-012-production-dependencies.md) | Закрыть advisories production-зависимостей | INFRA-004, PROP-007, PROP-006, FEAT-007 | @codex-mac | 2026-10-13 | — |
 | [WI-010](work/WI-010-clean-room-publication.md) | Clean-room acceptance и публикация | PROP-007, INFRA-004 | @codex-mac | 2026-08-23 | — |
 
 ## Blocked
